@@ -1,4 +1,5 @@
 import { getDatabasePool } from "../db/connection.js";
+import { sendFeedbackSubmittedNotification } from "../integrations/mattermost.js";
 import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
 
@@ -7,10 +8,17 @@ function normalizeAnswers(answers, questions) {
     throw new ServiceError(400, "answers must be a non-empty array");
   }
 
-  if (answers.length > questions.length) {
+  if (questions.length === 0) {
     throw new ServiceError(
       400,
-      "answers contains more entries than the selected template has questions",
+      "The selected feedback template does not have questions",
+    );
+  }
+
+  if (answers.length !== questions.length) {
+    throw new ServiceError(
+      400,
+      "answers must include one answer for every template question",
     );
   }
 
@@ -123,6 +131,17 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
     connection.release();
   }
 
-  return getFeedbackRequestById(requestId);
-}
+  const feedbackRequest = await getFeedbackRequestById(requestId);
 
+  try {
+    const notification =
+      await sendFeedbackSubmittedNotification(feedbackRequest);
+    return { ...feedbackRequest, notification };
+  } catch (error) {
+    console.error("Mattermost notification failed:", error.message);
+    return {
+      ...feedbackRequest,
+      notification: { sent: false, reason: "Mattermost notification failed" },
+    };
+  }
+}

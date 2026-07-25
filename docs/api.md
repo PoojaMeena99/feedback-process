@@ -46,6 +46,14 @@ cp .env.example .env
 npm run dev
 ```
 
+For the local MySQL user used by `.env.example`, run this once:
+
+```sql
+CREATE USER IF NOT EXISTS 'feedback_user'@'localhost' IDENTIFIED BY 'feedback123';
+GRANT ALL PRIVILEGES ON feedback_process.* TO 'feedback_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
 Open these URLs in the browser or send `GET` requests in Postman:
 
 ```text
@@ -54,10 +62,6 @@ http://localhost:5000/users
 http://localhost:5000/templates
 http://localhost:5000/templates/1/questions
 ```
-
-## What changes after MySQL is ready
-
-The routes and controller names remain the same. The temporary arrays in the controllers will be replaced by calls to database services. The API response shape should stay stable so the frontend does not need to change.
 
 ## Feedback request APIs
 
@@ -70,8 +74,7 @@ The routes and controller names remain the same. The temporary arrays in the con
   "requesterId": 1,
   "giverId": 2,
   "templateId": 1,
-  "message": "Please share feedback about my learning.",
-  "dueDate": "2026-08-01"
+  "message": "Please share feedback about my learning."
 }
 ```
 

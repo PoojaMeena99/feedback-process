@@ -51,3 +51,17 @@ CREATE TABLE IF NOT EXISTS feedback_answers (
   FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
   FOREIGN KEY (question_id) REFERENCES template_questions(id)
 );
+
+CREATE OR REPLACE VIEW feedback_request_details AS
+SELECT
+  request.id,
+  requester.name AS requester_name,
+  giver.name AS giver_name,
+  template.name AS feedback_type,
+  request.message,
+  request.status,
+  request.created_at
+FROM feedback_requests AS request
+JOIN users AS requester ON requester.id = request.requester_id
+JOIN users AS giver ON giver.id = request.giver_id
+JOIN feedback_templates AS template ON template.id = request.template_id;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -48,10 +48,26 @@ const fieldClass = "field-control";
 function loadRequests() {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
+    const savedRequests = JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
+    const cleanRequests = dedupeRequests(savedRequests);
+    if (cleanRequests.length !== savedRequests.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanRequests));
+    }
+    return cleanRequests;
   } catch {
     return [];
   }
+}
+
+function dedupeRequests(savedRequests) {
+  const seen = new Set();
+  return savedRequests.filter((request) => {
+    if (request.status !== "requested") return true;
+    const key = `${request.requesterId}:${request.giverId}:${request.templateId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export default function Home() {
@@ -74,13 +90,24 @@ export default function Home() {
   }
 
   function createRequest(payload) {
+    const duplicateRequest = requests.find(
+      (request) =>
+        request.requesterId === currentUserId &&
+        request.giverId === payload.giverId &&
+        request.templateId === payload.templateId &&
+        request.status === "requested",
+    );
+
+    if (duplicateRequest) {
+      setSelectedRequestId(duplicateRequest.id);
+      return false;
+    }
+
     const nextRequest = {
       id: crypto.randomUUID(),
       requesterId: currentUserId,
       giverId: payload.giverId,
       templateId: payload.templateId,
-      project: payload.project,
-      visibility: payload.visibility,
       message: payload.message,
       dueDate: payload.dueDate,
       status: "requested",
@@ -88,6 +115,7 @@ export default function Home() {
       createdAt: new Date().toISOString(),
     };
     saveRequests([nextRequest, ...requests]);
+    return true;
   }
 
   function updateRequest(requestId, changes) {
@@ -101,11 +129,26 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-ink">
       <div className="grid min-h-screen lg:grid-cols-[260px_1fr_420px]">
-        <Sidebar currentUser={currentUser} currentUserId={currentUserId} onUserChange={setCurrentUserId} />
+        <Sidebar />
 
         <main className="border-x border-line bg-[#fbfcfe] px-7 py-8">
-          <div className="mb-7 flex items-center justify-between gap-4">
+          <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h1 className="text-4xl font-bold tracking-tight text-[#111827]">Feedback Hub</h1>
+            <label className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-white px-4 shadow-sm">
+              <Avatar initials={currentUser.initials} small />
+              <select
+                className="bg-transparent text-base font-semibold outline-none"
+                value={currentUserId}
+                onChange={(event) => setCurrentUserId(event.target.value)}
+              >
+                {USERS.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={18} className="text-muted" />
+            </label>
           </div>
 
           <section className="grid gap-5 xl:grid-cols-3">
@@ -143,7 +186,6 @@ export default function Home() {
                     <th className="px-6 py-4">Requester</th>
                     <th className="px-4 py-4">Feedback Giver</th>
                     <th className="px-4 py-4">Type</th>
-                    <th className="px-4 py-4">Project</th>
                     <th className="px-4 py-4">Due Date</th>
                     <th className="px-4 py-4">Status</th>
                     <th className="px-4 py-4">Action</th>
@@ -168,7 +210,6 @@ export default function Home() {
                         </div>
                       </td>
                       <td className="px-4 py-5 text-base font-medium">{row.type}</td>
-                      <td className="px-4 py-5 text-base font-medium">{row.project}</td>
                       <td className="px-4 py-5">
                         <p className="font-semibold">{row.dueDate}</p>
                       </td>
@@ -187,7 +228,7 @@ export default function Home() {
                     </tr>
                   )) : (
                     <tr>
-                      <td className="px-6 py-12 text-center text-base text-muted" colSpan={7}>
+                      <td className="px-6 py-12 text-center text-base text-muted" colSpan={6}>
                         No feedback requests yet. Create a request from the right panel.
                       </td>
                     </tr>
@@ -216,7 +257,7 @@ export default function Home() {
   );
 }
 
-function Sidebar({ currentUser, currentUserId, onUserChange }) {
+function Sidebar() {
   return (
     <aside className="hidden bg-white px-4 py-8 shadow-sm lg:flex lg:flex-col">
       <div className="mb-10 flex items-center gap-3 px-2">
@@ -230,29 +271,6 @@ function Sidebar({ currentUser, currentUserId, onUserChange }) {
         <SidebarItem active icon={<HomeIcon size={22} />} label="Dashboard" />
         <SidebarItem icon={<Inbox size={22} />} label="Feedback Requests" />
       </nav>
-
-      <div className="mt-auto border-t border-line pt-7">
-        <div className="flex items-center gap-3">
-          <Avatar initials={currentUser.initials} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold">{currentUser.name}</p>
-            <label className="mt-1 block">
-              <select
-                className="w-full bg-transparent text-sm text-muted outline-none"
-                value={currentUserId}
-                onChange={(event) => onUserChange(event.target.value)}
-              >
-                {USERS.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <ChevronDown size={18} className="text-muted" />
-        </div>
-      </div>
     </aside>
   );
 }
@@ -300,17 +318,23 @@ function CreateFeedbackPanel({ currentUserId, onCreate }) {
   const possibleGivers = USERS.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState(possibleGivers[0]?.id ?? "");
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
-  const [project, setProject] = useState("CCL Launch");
-  const [visibility, setVisibility] = useState("Receiver + Mentor");
   const [message, setMessage] = useState(
-    "I'd appreciate your feedback on my contributions to the CCL Launch project, especially around collaboration and communication.",
+    "Please share feedback for my learning progress.",
   );
   const [dueDate, setDueDate] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (!possibleGivers.some((user) => user.id === giverId)) {
+      setGiverId(possibleGivers[0]?.id ?? "");
+    }
+  }, [currentUserId, giverId, possibleGivers]);
 
   function submit(event) {
     event.preventDefault();
     if (!giverId || giverId === currentUserId) return;
-    onCreate({ giverId, templateId, project, visibility, message, dueDate });
+    const created = onCreate({ giverId, templateId, message, dueDate });
+    setNotice(created ? "Request sent." : "This request already exists.");
   }
 
   return (
@@ -348,27 +372,6 @@ function CreateFeedbackPanel({ currentUserId, onCreate }) {
           </SelectShell>
         </Field>
 
-        <Field label="Related project">
-          <SelectShell>
-            <select className="w-full bg-transparent outline-none" value={project} onChange={(event) => setProject(event.target.value)}>
-              <option>CCL Launch</option>
-              <option>Mobile App Redesign</option>
-              <option>Customer Onboarding</option>
-              <option>Data Migration</option>
-            </select>
-          </SelectShell>
-        </Field>
-
-        <Field label="Visibility">
-          <SelectShell>
-            <select className="w-full bg-transparent outline-none" value={visibility} onChange={(event) => setVisibility(event.target.value)}>
-              <option>Receiver + Mentor</option>
-              <option>Private</option>
-              <option>Team Lead</option>
-            </select>
-          </SelectShell>
-        </Field>
-
         <Field label="Due date">
           <input className={fieldClass} type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
         </Field>
@@ -387,6 +390,7 @@ function CreateFeedbackPanel({ currentUserId, onCreate }) {
           <Send size={22} />
           Send Request
         </button>
+        {notice ? <p className="text-center text-base font-medium text-blue-700">{notice}</p> : null}
       </form>
     </aside>
   );
@@ -498,7 +502,6 @@ function toTableRow(request) {
     giverName: giver.name,
     giverInitials: giver.initials,
     type: template.name,
-    project: request.project || "CCL Launch",
     dueDate: request.dueDate ? `Due ${request.dueDate}` : "No due date",
     status: request.status,
   };

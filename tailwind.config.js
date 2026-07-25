@@ -3,6 +3,17 @@ const config = {
   content: ["./app/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: [
+          "Inter",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          '"Segoe UI"',
+          "sans-serif",
+        ],
+      },
       colors: {
         ink: "#1f2a24",
         muted: "#68766f",

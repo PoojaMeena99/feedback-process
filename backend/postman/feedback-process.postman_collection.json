@@ -1,0 +1,115 @@
+{
+  "info": {
+    "name": "Feedback Process API",
+    "description": "MVP API collection for the feedback-process backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Users",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/users"
+      }
+    },
+    {
+      "name": "Templates",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/templates"
+      }
+    },
+    {
+      "name": "Template Questions",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/templates/1/questions"
+      }
+    },
+    {
+      "name": "Create Feedback Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"requesterId\": 1,\n  \"giverId\": 2,\n  \"templateId\": 1,\n  \"message\": \"Please share feedback about my learning.\"\n}"
+        },
+        "url": "{{baseUrl}}/feedback-requests"
+      }
+    },
+    {
+      "name": "Giver Requests",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/feedback-requests/giver/2"
+      }
+    },
+    {
+      "name": "Requester Requests",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/feedback-requests/requester/1"
+      }
+    },
+    {
+      "name": "Feedback Request Details",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/feedback-requests/1"
+      }
+    },
+    {
+      "name": "Submit Feedback Answers",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"giverId\": 2,\n  \"answers\": [\n    \"The learner understood the topic well.\",\n    \"They can practice more examples.\",\n    \"They should build one small project next.\"\n  ]\n}"
+        },
+        "url": "{{baseUrl}}/feedback-requests/1/answers"
+      }
+    },
+    {
+      "name": "Update Feedback Request Status",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"closed\"\n}"
+        },
+        "url": "{{baseUrl}}/feedback-requests/1/status"
+      }
+    }
+  ]
+}

@@ -1,99 +1,137 @@
-const feedbackRequests = [];
+import { submitFeedbackAnswers as saveFeedbackAnswers } from "../services/feedbackAnswerService.js";
+import {
+  createFeedbackRequest as createFeedbackRequestInDatabase,
+  getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
+  getRequestsForGiver as getRequestsForGiverFromDatabase,
+  getRequestsForRequester as getRequestsForRequesterFromDatabase,
+  updateFeedbackRequestStatus as updateFeedbackRequestStatusInDatabase,
+} from "../services/feedbackRequestService.js";
+import { respondWithError } from "./respondWithError.js";
 
 const allowedStatuses = ["requested", "submitted", "closed"];
 
-export function createFeedbackRequest(req, res) {
-  const { requesterId, giverId, templateId, message, dueDate } = req.body;
+function parsePositiveInteger(value) {
+  const parsedValue = Number(value);
+  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
+}
+
+export async function createFeedbackRequest(req, res) {
+  const requesterId = parsePositiveInteger(req.body.requesterId);
+  const giverId = parsePositiveInteger(req.body.giverId);
+  const templateId = parsePositiveInteger(req.body.templateId);
+  const { message } = req.body;
 
   if (!requesterId || !giverId || !templateId) {
     return res.status(400).json({
-      message: "requesterId, giverId, and templateId are required",
+      message: "requesterId, giverId, and templateId must be positive integers",
     });
   }
 
-  if (requesterId === giverId) {
+  try {
+    const feedbackRequest = await createFeedbackRequestInDatabase({
+      requesterId,
+      giverId,
+      templateId,
+      message,
+    });
+
+    return res.status(201).json({
+      message: "Feedback request created",
+      feedbackRequest,
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function getRequestsForGiver(req, res) {
+  const giverId = parsePositiveInteger(req.params.userId);
+
+  if (!giverId) {
     return res.status(400).json({
-      message: "You cannot request feedback from yourself",
+      message: "User ID must be a positive integer",
     });
   }
 
-  const newRequest = {
-    id: feedbackRequests.length + 1,
-    requesterId,
-    giverId,
-    templateId,
-    message: message || "",
-    dueDate: dueDate || null,
-    status: "requested",
-    answers: [],
-  };
-
-  feedbackRequests.push(newRequest);
-
-  return res.status(201).json({
-    message: "Feedback request created",
-    feedbackRequest: newRequest,
-  });
+  try {
+    const feedbackRequests = await getRequestsForGiverFromDatabase(giverId);
+    return res.status(200).json({ feedbackRequests });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
 }
 
-export function getRequestsForGiver(req, res) {
-  const giverId = Number(req.params.userId);
-  const requests = feedbackRequests.filter((request) => request.giverId === giverId);
+export async function getRequestsForRequester(req, res) {
+  const requesterId = parsePositiveInteger(req.params.userId);
 
-  return res.status(200).json({ feedbackRequests: requests });
-}
-
-export function getRequestsForRequester(req, res) {
-  const requesterId = Number(req.params.userId);
-  const requests = feedbackRequests.filter((request) => request.requesterId === requesterId);
-
-  return res.status(200).json({ feedbackRequests: requests });
-}
-
-export function getFeedbackRequestById(req, res) {
-  const requestId = Number(req.params.id);
-  const feedbackRequest = feedbackRequests.find((request) => request.id === requestId);
-
-  if (!feedbackRequest) {
-    return res.status(404).json({ message: "Feedback request not found" });
+  if (!requesterId) {
+    return res.status(400).json({
+      message: "User ID must be a positive integer",
+    });
   }
 
-  return res.status(200).json({ feedbackRequest });
+  try {
+    const feedbackRequests =
+      await getRequestsForRequesterFromDatabase(requesterId);
+    return res.status(200).json({ feedbackRequests });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
 }
 
-export function submitFeedbackAnswers(req, res) {
-  const requestId = Number(req.params.id);
-  const { giverId, answers } = req.body;
-  const feedbackRequest = feedbackRequests.find((request) => request.id === requestId);
+export async function getFeedbackRequestById(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
 
-  if (!feedbackRequest) {
-    return res.status(404).json({ message: "Feedback request not found" });
+  if (!requestId) {
+    return res.status(400).json({
+      message: "Request ID must be a positive integer",
+    });
   }
 
-  if (Number(giverId) !== feedbackRequest.giverId) {
-    return res.status(403).json({ message: "Only the selected feedback giver can submit answers" });
+  try {
+    const feedbackRequest =
+      await getFeedbackRequestByIdFromDatabase(requestId);
+    return res.status(200).json({ feedbackRequest });
+  } catch (error) {
+    return respondWithError(res, error);
   }
-
-  if (!Array.isArray(answers) || answers.length === 0) {
-    return res.status(400).json({ message: "answers must be a non-empty array" });
-  }
-
-  feedbackRequest.answers = answers;
-  feedbackRequest.status = "submitted";
-
-  return res.status(200).json({
-    message: "Feedback submitted",
-    feedbackRequest,
-  });
 }
 
-export function updateFeedbackRequestStatus(req, res) {
-  const requestId = Number(req.params.id);
+export async function submitFeedbackAnswers(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  const giverId = parsePositiveInteger(req.body.giverId);
+  const { answers } = req.body;
+
+  if (!requestId || !giverId) {
+    return res.status(400).json({
+      message: "Request ID and giverId must be positive integers",
+    });
+  }
+
+  try {
+    const feedbackRequest = await saveFeedbackAnswers(
+      requestId,
+      giverId,
+      answers,
+    );
+
+    return res.status(200).json({
+      message: "Feedback submitted",
+      feedbackRequest,
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function updateFeedbackRequestStatus(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
   const { status } = req.body;
-  const feedbackRequest = feedbackRequests.find((request) => request.id === requestId);
 
-  if (!feedbackRequest) {
-    return res.status(404).json({ message: "Feedback request not found" });
+  if (!requestId) {
+    return res.status(400).json({
+      message: "Request ID must be a positive integer",
+    });
   }
 
   if (!allowedStatuses.includes(status)) {
@@ -102,10 +140,18 @@ export function updateFeedbackRequestStatus(req, res) {
     });
   }
 
-  feedbackRequest.status = status;
+  try {
+    const feedbackRequest = await updateFeedbackRequestStatusInDatabase(
+      requestId,
+      status,
+    );
 
-  return res.status(200).json({
-    message: "Feedback request status updated",
-    feedbackRequest,
-  });
+    return res.status(200).json({
+      message: "Feedback request status updated",
+      feedbackRequest,
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
 }
+

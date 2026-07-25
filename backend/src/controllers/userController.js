@@ -1,10 +1,12 @@
-// Temporary data: the integration owner will replace this with a MySQL query.
-const users = [
-  { id: 1, name: "Rani Singh", email: "rani@justuju.in" },
-  { id: 2, name: "Shanti Singh", email: "shanti@justuju.in" },
-  { id: 3, name: "Pooja", email: "pooja@justuju.in" },
-];
+import { getAllUsers } from "../services/userService.js";
+import { respondWithError } from "./respondWithError.js";
 
-export function getUsers(_req, res) {
-  res.status(200).json({ users });
+export async function getUsers(_req, res) {
+  try {
+    const users = await getAllUsers();
+    return res.status(200).json({ users });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
 }
+

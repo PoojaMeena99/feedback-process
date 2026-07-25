@@ -17,6 +17,16 @@ CREATE TABLE IF NOT EXISTS feedback_templates (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS template_questions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  template_id INT NOT NULL,
+  question_text TEXT NOT NULL,
+  question_order INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
   requester_id INT NOT NULL,
@@ -34,9 +44,10 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,
-  question TEXT NOT NULL,
+  question_id INT NOT NULL,
   answer TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (request_id) REFERENCES feedback_requests(id)
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (question_id) REFERENCES template_questions(id)
 );

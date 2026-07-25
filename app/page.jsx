@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   Check,
@@ -12,98 +12,162 @@ import {
   X,
 } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
 const primaryButton = "btn btn-primary";
 const secondaryButton = "btn btn-secondary";
 const fieldClass = "field-control";
 
-async function api(path, options) {
+async function apiRequest(path, options) {
   const response = await fetch(`${API_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
     ...options,
-    headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.message || "Something went wrong");
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.message ?? "API request failed");
+  }
+
   return data;
 }
 
+function getInitials(name = "") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 export default function Home() {
-  const [currentUserId, setCurrentUserId] = useState(null);
   const [users, setUsers] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [currentUserId, setCurrentUserId] = useState("");
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const currentUser = users.find((user) => user.id === currentUserId);
-  const pendingForMe = requests.filter((request) => request.giverId === currentUserId);
-  const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
-  const submittedCount = requests.filter((request) => request.status === "submitted").length;
-  const tableRows = requests
-    .filter((request) => request.giverId === currentUserId || request.requesterId === currentUserId)
-    .map(toTableRow);
+  const currentUser = users.find((user) => user.id === Number(currentUserId)) ?? users[0];
+  const pendingForMe = requests.filter(
+    (request) => request.giverId === currentUser?.id && request.status === "requested",
+  );
+  const sentByMe = requests.filter((request) => request.requesterId === currentUser?.id);
+  const submittedCount = requests.filter(
+    (request) =>
+      request.status === "submitted" &&
+      (request.giverId === currentUser?.id || request.requesterId === currentUser?.id),
+  ).length;
 
-  useEffect(() => {
-    async function loadReferenceData() {
-      try {
-        const [userData, templateData] = await Promise.all([api("/users"), api("/templates")]);
-        setUsers(userData.users);
-        setTemplates(templateData.templates);
-        setCurrentUserId(userData.users[0]?.id ?? null);
-      } catch (loadError) {
-        setError(loadError.message);
-      }
-    }
-    void loadReferenceData();
-  }, []);
+  const tableRows = useMemo(
+    () =>
+      requests
+        .filter(
+          (request) =>
+            request.giverId === currentUser?.id ||
+            request.requesterId === currentUser?.id,
+        )
+        .map(toTableRow),
+    [requests, currentUser],
+  );
 
-  async function loadRequests(userId = currentUserId) {
+  async function loadDashboard(userId = currentUserId) {
     if (!userId) return;
-    try {
-      const [received, sent] = await Promise.all([
-        api(`/feedback-requests/giver/${userId}`),
-        api(`/feedback-requests/requester/${userId}`),
-      ]);
-      const merged = new Map([...received.feedbackRequests, ...sent.feedbackRequests].map((request) => [request.id, request]));
-      setRequests([...merged.values()]);
-      setError("");
-    } catch (loadError) {
-      setError(loadError.message);
-    }
+    setError("");
+    const [received, sent] = await Promise.all([
+      apiRequest(`/feedback-requests/giver/${userId}`),
+      apiRequest(`/feedback-requests/requester/${userId}`),
+    ]);
+
+    const mergedRequests = [
+      ...received.feedbackRequests,
+      ...sent.feedbackRequests,
+    ].filter(
+      (request, index, allRequests) =>
+        allRequests.findIndex((item) => item.id === request.id) === index,
+    );
+
+    setRequests(mergedRequests);
   }
 
   useEffect(() => {
-    void loadRequests();
+    async function loadInitialData() {
+      try {
+        setIsLoading(true);
+        const [usersResponse, templatesResponse] = await Promise.all([
+          apiRequest("/users"),
+          apiRequest("/templates"),
+        ]);
+        const loadedUsers = usersResponse.users ?? [];
+        setUsers(loadedUsers);
+        setTemplates(templatesResponse.templates ?? []);
+
+        if (loadedUsers[0]) {
+          setCurrentUserId(String(loadedUsers[0].id));
+          await loadDashboard(loadedUsers[0].id);
+        }
+      } catch (apiError) {
+        setError(apiError.message);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (currentUserId) {
+      loadDashboard(currentUserId).catch((apiError) => setError(apiError.message));
+    }
   }, [currentUserId]);
 
   async function createRequest(payload) {
+    setError("");
     try {
-      await api("/feedback-requests", { method: "POST", body: JSON.stringify({ ...payload, requesterId: currentUserId }) });
-      await loadRequests();
+      await apiRequest("/feedback-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          requesterId: Number(currentUserId),
+          giverId: Number(payload.giverId),
+          templateId: Number(payload.templateId),
+          message: payload.message,
+        }),
+      });
+      await loadDashboard(currentUserId);
       return { ok: true };
-    } catch (createError) {
-      return { ok: false, message: createError.message };
+    } catch (apiError) {
+      setError(apiError.message);
+      return { ok: false, message: apiError.message };
     }
   }
 
   async function openRequest(requestId) {
+    setError("");
     try {
-      const detail = await api(`/feedback-requests/${requestId}`);
-      const template = await api(`/templates/${detail.feedbackRequest.templateId}/questions`);
-      setSelectedRequest({ ...detail.feedbackRequest, template });
-    } catch (requestError) {
-      setError(requestError.message);
+      const response = await apiRequest(`/feedback-requests/${requestId}`);
+      setSelectedRequest(response.feedbackRequest);
+    } catch (apiError) {
+      setError(apiError.message);
     }
   }
 
   async function submitAnswers(requestId, answers) {
-    await api(`/feedback-requests/${requestId}/answers`, { method: "POST", body: JSON.stringify({ giverId: currentUserId, answers }) });
+    setError("");
+    await apiRequest(`/feedback-requests/${requestId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        giverId: Number(currentUserId),
+        answers,
+      }),
+    });
     setSelectedRequest(null);
-    await loadRequests();
-  }
-
-  if (!currentUser) {
-    return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback Hub…</main>;
+    await loadDashboard(currentUserId);
   }
 
   return (
@@ -124,12 +188,12 @@ export default function Home() {
               <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
             </div>
             <label className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-white px-4 text-slate-900 shadow-sm">
-              <Avatar initials={initialsForName(currentUser.name)} small />
+              <Avatar initials={getInitials(currentUser?.name)} small />
               <span className="text-sm font-medium text-muted">Viewing as</span>
               <select
                 className="bg-transparent text-base font-semibold outline-none"
                 value={currentUserId}
-                onChange={(event) => setCurrentUserId(Number(event.target.value))}
+                onChange={(event) => setCurrentUserId(event.target.value)}
                 aria-label="Choose current user"
               >
                 {users.map((user) => (
@@ -140,6 +204,12 @@ export default function Home() {
               </select>
             </label>
           </div>
+
+          {error ? (
+            <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-base font-medium text-red-700">
+              {error}
+            </div>
+          ) : null}
 
           <section className="grid gap-5 xl:grid-cols-3">
             <StatCard
@@ -177,20 +247,25 @@ export default function Home() {
                     <th className="px-6 py-4">Requester</th>
                     <th className="px-4 py-4">Feedback Giver</th>
                     <th className="px-4 py-4">Type</th>
-                    <th className="px-4 py-4">Due Date</th>
+                    <th className="px-4 py-4">Created</th>
                     <th className="px-4 py-4">Status</th>
                     <th className="px-4 py-4">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {tableRows.length ? tableRows.map((row) => (
+                  {isLoading ? (
+                    <tr>
+                      <td className="px-6 py-12 text-center text-base text-muted" colSpan={6}>
+                        Loading feedback data...
+                      </td>
+                    </tr>
+                  ) : tableRows.length ? tableRows.map((row) => (
                     <tr key={row.id} className="hover:bg-[#f9fbff]">
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">
                           <Avatar initials={row.requesterInitials} />
                           <div>
                             <p className="text-base font-semibold text-[#111827]">{row.requesterName}</p>
-                            <p className="mt-1 text-sm text-muted">{row.requesterEmail}</p>
                           </div>
                         </div>
                       </td>
@@ -202,18 +277,18 @@ export default function Home() {
                       </td>
                       <td className="px-4 py-5 text-base font-medium">{row.type}</td>
                       <td className="px-4 py-5">
-                        <p className="font-semibold">{row.dueDate}</p>
+                        <p className="font-semibold">{row.createdAt}</p>
                       </td>
                       <td className="px-4 py-5">
                         <span className={statusClass(row.status)}>{row.status}</span>
                       </td>
                       <td className="px-4 py-5">
                         <button
-                          className="rounded-md border border-blue-200 px-5 py-2 text-base font-semibold text-blue-700 hover:bg-blue-50"
+                          className="rounded-lg border border-blue-200 px-5 py-2 text-base font-semibold text-blue-700 transition hover:bg-blue-50"
                           type="button"
-                          onClick={() => void openRequest(row.id)}
+                          onClick={() => openRequest(row.id)}
                         >
-                          {row.giverId === currentUserId && row.status === "requested" ? "Fill" : "View"}
+                          {row.giverId === currentUser?.id && row.status === "requested" ? "Fill" : "View"}
                         </button>
                       </td>
                     </tr>
@@ -228,12 +303,17 @@ export default function Home() {
               </table>
             </div>
             <div className="flex items-center justify-between border-t border-line px-6 py-4 text-base text-muted">
-              <span>Showing 1 to {tableRows.length} of {tableRows.length} requests</span>
+              <span>Showing {tableRows.length} requests</span>
             </div>
           </section>
         </main>
 
-        <CreateFeedbackPanel currentUserId={currentUserId} users={users} templates={templates} onCreate={createRequest} />
+        <CreateFeedbackPanel
+          currentUserId={currentUser?.id}
+          users={users}
+          templates={templates}
+          onCreate={createRequest}
+        />
       </div>
 
       <AppFooter />
@@ -241,7 +321,7 @@ export default function Home() {
       {selectedRequest ? (
         <FeedbackDetail
           request={selectedRequest}
-          currentUserId={currentUserId}
+          currentUserId={currentUser?.id}
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
         />
@@ -342,26 +422,25 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
   const [message, setMessage] = useState(
     "Please share feedback for my learning progress.",
   );
-  const [dueDate, setDueDate] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!possibleGivers.some((user) => user.id === Number(giverId))) {
-      setGiverId(possibleGivers[0]?.id ?? "");
+      setGiverId(String(possibleGivers[0]?.id ?? ""));
     }
   }, [currentUserId, giverId, possibleGivers]);
 
   useEffect(() => {
     if (!templates.some((template) => template.id === Number(templateId))) {
-      setTemplateId(templates[0]?.id ?? "");
+      setTemplateId(String(templates[0]?.id ?? ""));
     }
   }, [templateId, templates]);
 
   async function submit(event) {
     event.preventDefault();
-    if (!giverId || Number(giverId) === currentUserId) return;
-    const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate });
-    setNotice(result.ok ? "Request sent." : result.message);
+    if (!giverId || Number(giverId) === currentUserId || !templateId) return;
+    const result = await onCreate({ giverId, templateId, message });
+    setNotice(result.ok ? "Request saved in database." : result.message);
   }
 
   return (
@@ -391,7 +470,7 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
 
         <Field label="Feedback receiver">
           <SelectShell>
-            <Avatar initials={initialsForName(possibleGivers.find((user) => user.id === Number(giverId))?.name)} small />
+            <Avatar initials={getInitials(possibleGivers.find((user) => user.id === Number(giverId))?.name)} small />
             <select className="w-full bg-transparent outline-none" value={giverId} onChange={(event) => setGiverId(event.target.value)}>
               {possibleGivers.map((user) => (
                 <option key={user.id} value={user.id}>
@@ -400,10 +479,6 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
               ))}
             </select>
           </SelectShell>
-        </Field>
-
-        <Field label="Due date">
-          <input className={fieldClass} type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
         </Field>
 
         <Field label="Feedback request message (optional)">
@@ -416,7 +491,7 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
           <p className="text-sm font-normal text-muted">{message.length} / 500 characters</p>
         </Field>
 
-        <button className={`${primaryButton} mt-4 w-full py-4 text-lg`} type="submit">
+        <button className={`${primaryButton} mt-4 w-full py-4 text-lg shadow-lg shadow-blue-100`} type="submit">
           <Send size={22} />
           Send Request
         </button>
@@ -428,7 +503,7 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
 
 function SelectShell({ children }) {
   return (
-    <div className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-white px-4 text-base shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
+    <div className="flex min-h-14 items-center gap-3 rounded-xl border border-line bg-white px-4 text-base shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
       {children}
     </div>
   );
@@ -444,13 +519,39 @@ function Field({ label, children }) {
 }
 
 function FeedbackDetail({ request, currentUserId, onClose, onSubmit }) {
-  const template = request.template;
   const canSubmit = currentUserId === request.giverId && request.status === "requested";
-  const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
+  const [answers, setAnswers] = useState({});
+  const [error, setError] = useState("");
+  const [questions, setQuestions] = useState([]);
+
+  useEffect(() => {
+    async function loadQuestions() {
+      try {
+        const response = await apiRequest(`/templates/${request.templateId}/questions`);
+        setQuestions(response.questions ?? []);
+      } catch (apiError) {
+        setError(apiError.message);
+      }
+    }
+
+    loadQuestions();
+  }, [request.templateId]);
 
   async function submit(event) {
     event.preventDefault();
-    await onSubmit(request.id, template.questions.map((question) => ({ questionId: question.id, answer: answers[question.id] || "" })));
+    setError("");
+
+    try {
+      await onSubmit(
+        request.id,
+        questions.map((question) => ({
+          questionId: question.id,
+          answer: answers[question.id] ?? "",
+        })),
+      );
+    } catch (apiError) {
+      setError(apiError.message);
+    }
   }
 
   return (
@@ -460,44 +561,83 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit }) {
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700 shadow-sm">
               <Sparkles size={14} />
-              {template.templateName}
+              {request.templateName}
             </div>
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
               {request.requesterName} requested feedback from {request.giverName}
             </h2>
             <p className="mt-2 text-sm text-slate-600">Share clear, kind, and actionable feedback.</p>
           </div>
+          <button className={secondaryButton} type="button" aria-label="Close" onClick={onClose}>
+            <X size={18} />
+          </button>
         </div>
 
         <form className="grid gap-5 p-6 sm:p-8" onSubmit={submit}>
-          {template.questions.map((question, index) => (
-            <Field key={question.id} label={<span className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span><span>{question.questionText}</span></span>}>
-              <textarea
-                className={`${fieldClass} min-h-28 resize-y border-slate-200 bg-slate-50/70 leading-7 focus:bg-white disabled:bg-surface disabled:text-muted`}
-                value={answers[question.id] ?? ""}
-                disabled={!canSubmit}
-                onChange={(event) => setAnswers({ ...answers, [question.id]: event.target.value })}
-                required
-              />
-            </Field>
-          ))}
+          {error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-base font-medium text-red-700">
+              {error}
+            </div>
+          ) : null}
+
+          {request.answers?.length ? (
+            request.answers.map((item, index) => (
+              <Field
+                key={item.id}
+                label={<QuestionLabel index={index} text={item.questionText} />}
+              >
+                <textarea
+                  className={`${fieldClass} min-h-28 resize-y border-slate-200 bg-slate-50/70 leading-7 disabled:bg-surface disabled:text-muted`}
+                  value={item.answer}
+                  disabled
+                />
+              </Field>
+            ))
+          ) : (
+            questions.map((question, index) => (
+              <Field
+                key={question.id}
+                label={<QuestionLabel index={index} text={question.questionText} />}
+              >
+                <textarea
+                  className={`${fieldClass} min-h-28 resize-y border-slate-200 bg-slate-50/70 leading-7 focus:bg-white disabled:bg-surface disabled:text-muted`}
+                  value={answers[question.id] ?? ""}
+                  disabled={!canSubmit}
+                  onChange={(event) => setAnswers({ ...answers, [question.id]: event.target.value })}
+                  required
+                />
+              </Field>
+            ))
+          )}
+
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
             <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
             <div className="flex flex-wrap gap-2">
-            <button className={secondaryButton} type="button" onClick={onClose}>
-              Cancel
-            </button>
-            {canSubmit ? (
-              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-5 font-semibold text-white shadow-lg shadow-blue-200 transition hover:from-blue-700 hover:to-indigo-700" type="submit">
-                <Check size={16} />
-                Submit feedback
+              <button className={secondaryButton} type="button" onClick={onClose}>
+                Cancel
               </button>
-            ) : null}
+              {canSubmit && !request.answers?.length ? (
+                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-5 font-semibold text-white shadow-lg shadow-blue-200 transition hover:from-blue-700 hover:to-indigo-700" type="submit">
+                  <Check size={16} />
+                  Submit feedback
+                </button>
+              ) : null}
             </div>
           </div>
         </form>
       </section>
     </div>
+  );
+}
+
+function QuestionLabel({ index, text }) {
+  return (
+    <span className="flex gap-3">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+        {index + 1}
+      </span>
+      <span>{text}</span>
+    </span>
   );
 }
 
@@ -508,7 +648,7 @@ function Avatar({ initials, small = false }) {
         small ? "h-8 w-8 text-sm" : "h-12 w-12 text-base"
       }`}
     >
-      {initials}
+      {initials || "U"}
     </span>
   );
 }
@@ -516,6 +656,7 @@ function Avatar({ initials, small = false }) {
 function statusClass(status) {
   const base = "status-pill";
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
+  if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
   return `${base} bg-blue-50 text-blue-700`;
 }
 
@@ -523,17 +664,12 @@ function toTableRow(request) {
   return {
     id: request.id,
     requesterName: request.requesterName,
-    requesterEmail: "",
-    requesterInitials: initialsForName(request.requesterName),
+    requesterInitials: getInitials(request.requesterName),
     giverId: request.giverId,
     giverName: request.giverName,
-    giverInitials: initialsForName(request.giverName),
+    giverInitials: getInitials(request.giverName),
     type: request.templateName,
-    dueDate: "No due date",
+    createdAt: request.createdAt ? new Date(request.createdAt).toLocaleDateString() : "-",
     status: request.status,
   };
-}
-
-function initialsForName(name = "?") {
-  return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }

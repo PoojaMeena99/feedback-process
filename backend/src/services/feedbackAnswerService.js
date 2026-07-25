@@ -8,10 +8,17 @@ function normalizeAnswers(answers, questions) {
     throw new ServiceError(400, "answers must be a non-empty array");
   }
 
-  if (answers.length > questions.length) {
+  if (questions.length === 0) {
     throw new ServiceError(
       400,
-      "answers contains more entries than the selected template has questions",
+      "The selected feedback template does not have questions",
+    );
+  }
+
+  if (answers.length !== questions.length) {
+    throw new ServiceError(
+      400,
+      "answers must include one answer for every template question",
     );
   }
 
@@ -138,4 +145,3 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
     };
   }
 }
-

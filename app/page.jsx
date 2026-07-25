@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  Bell,
   Check,
   CircleUserRound,
   ClipboardList,
@@ -43,6 +42,13 @@ const TEMPLATES = [
 ];
 
 const STORAGE_KEY = "feedback-process-requests";
+const buttonBase =
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-semibold transition";
+const primaryButton = `${buttonBase} bg-brand text-white hover:bg-brandDark`;
+const secondaryButton = `${buttonBase} border border-line bg-white text-ink hover:bg-surface`;
+const dangerButton = `${buttonBase} bg-red-700 text-white hover:bg-red-800`;
+const fieldClass =
+  "min-h-10 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15";
 
 function loadRequests() {
   if (typeof window === "undefined") return [];
@@ -61,8 +67,8 @@ export default function Home() {
   const currentUser = getUser(currentUserId);
   const selectedRequest = requests.find((request) => request.id === selectedRequestId);
   const waitingCount = requests.filter((request) => request.giverId === currentUserId).length;
-  const receivedCount = requests.filter((request) => request.requesterId === currentUserId).length;
-  const closedCount = requests.filter((request) => request.status === "closed").length;
+  const requestedCount = requests.filter((request) => request.requesterId === currentUserId).length;
+  const submittedCount = requests.filter((request) => request.status === "submitted").length;
 
   function saveRequests(nextRequests) {
     setRequests(nextRequests);
@@ -98,63 +104,83 @@ export default function Home() {
   }
 
   return (
-    <>
-      <header className="site-header">
-        <div className="brand">
-          <span className="brand-mark">FP</span>
-          <div>
-            <strong>Feedback Process</strong>
-            <span>Team workflow prototype</span>
+    <div className="min-h-screen bg-surface text-ink">
+      <header className="border-b border-line bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-sm font-bold text-white">
+              FP
+            </div>
+            <div>
+              <p className="text-base font-bold">Feedback Process</p>
+              <p className="text-sm text-muted">Simple team feedback workflow</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <nav className="flex gap-1 rounded-md border border-line bg-surface p-1 text-sm font-medium text-muted">
+              <a className="rounded px-3 py-2 hover:bg-white hover:text-ink" href="#create">
+                Create
+              </a>
+              <a className="rounded px-3 py-2 hover:bg-white hover:text-ink" href="#requests">
+                Requests
+              </a>
+              <a className="rounded px-3 py-2 hover:bg-white hover:text-ink" href="#received">
+                Received
+              </a>
+            </nav>
+
+            <label className="flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2">
+              <CircleUserRound size={18} className="text-muted" />
+              <select
+                className="bg-transparent text-sm font-semibold outline-none"
+                value={currentUserId}
+                onChange={(event) => setCurrentUserId(event.target.value)}
+              >
+                {USERS.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
-        <nav className="header-nav" aria-label="Main navigation">
-          <a href="#create">Create</a>
-          <a href="#requests">Requests</a>
-          <a href="#received">Received</a>
-        </nav>
-        <label className="user-switcher">
-          <CircleUserRound size={18} />
-          <select value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)}>
-            {USERS.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </label>
       </header>
 
-      <main className="app-shell">
-        <section className="hero">
+      <main className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
+        <section className="grid gap-5 border-b border-line pb-6 lg:grid-cols-[1fr_320px]">
           <div>
-            <p className="eyebrow">Feedback workflow prototype</p>
-            <h1>Request, submit, and close feedback with a clean team flow</h1>
-            <p className="hero-copy">
-              Use this prototype to understand the full feedback journey before connecting
-              MySQL, Express APIs, and Mattermost notifications.
+            <p className="text-xs font-bold uppercase tracking-wide text-accent">
+              Frontend prototype
+            </p>
+            <h1 className="mt-2 max-w-3xl text-3xl font-bold leading-tight text-ink md:text-5xl">
+              Manage feedback requests from one clean dashboard.
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
+              First understand the request, accept, submit, and close flow. Later this
+              same flow can connect with Express, MySQL, and Mattermost.
             </p>
           </div>
-          <div className="hero-panel">
-            <div className="hero-icon">
-              <Bell size={22} />
-            </div>
-            <p>Current session</p>
-            <strong>{currentUser.name}</strong>
-            <span>{currentUser.email}</span>
+
+          <div className="rounded-md border border-line bg-white p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted">Current user</p>
+            <p className="mt-3 text-xl font-bold">{currentUser.name}</p>
+            <p className="mt-1 break-words text-sm text-muted">{currentUser.email}</p>
+            <button className={`${secondaryButton} mt-5 w-full`} type="button" onClick={resetDemo}>
+              <RotateCcw size={16} />
+              Reset demo
+            </button>
           </div>
         </section>
 
-        <section className="summary-strip" aria-label="Workflow summary">
+        <section className="grid gap-3 py-5 md:grid-cols-3">
           <Metric label="Waiting for me" value={waitingCount} />
-          <Metric label="Requested by me" value={receivedCount} />
-          <Metric label="Closed feedback" value={closedCount} />
-          <button className="ghost-button" type="button" onClick={resetDemo}>
-            <RotateCcw size={16} />
-            Reset demo
-          </button>
+          <Metric label="Requested by me" value={requestedCount} />
+          <Metric label="Submitted feedback" value={submittedCount} />
         </section>
 
-        <section className="grid">
+        <section className="grid gap-5 lg:grid-cols-3">
           <div id="create">
             <CreateRequest currentUserId={currentUserId} onCreate={createRequest} />
           </div>
@@ -186,19 +212,21 @@ export default function Home() {
         ) : null}
       </main>
 
-      <footer className="site-footer">
-        <span>Feedback Process Prototype</span>
-        <span>Next.js + localStorage now, Express + MySQL later</span>
+      <footer className="border-t border-line bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 py-5 text-sm text-muted md:flex-row md:items-center md:justify-between lg:px-8">
+          <span className="font-semibold text-ink">Feedback Process Prototype</span>
+          <span>Next.js + Tailwind CSS. Data is currently saved in localStorage.</span>
+        </div>
       </footer>
-    </>
+    </div>
   );
 }
 
 function Metric({ label, value }) {
   return (
-    <div className="metric">
-      <strong>{value}</strong>
-      <span>{label}</span>
+    <div className="rounded-md border border-line bg-white p-4">
+      <p className="text-2xl font-bold text-ink">{value}</p>
+      <p className="mt-1 text-sm font-medium text-muted">{label}</p>
     </div>
   );
 }
@@ -220,36 +248,45 @@ function CreateRequest({ currentUserId, onCreate }) {
 
   return (
     <Panel icon={<Send size={18} />} title="Create Request">
-      <form className="stack" onSubmit={submit}>
-        <label>
-          Feedback giver
-          <select value={giverId} onChange={(event) => setGiverId(event.target.value)}>
+      <form className="grid gap-4" onSubmit={submit}>
+        <Field label="Feedback giver">
+          <select className={fieldClass} value={giverId} onChange={(event) => setGiverId(event.target.value)}>
             {possibleGivers.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Feedback type
-          <select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+        </Field>
+
+        <Field label="Feedback type">
+          <select className={fieldClass} value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
             {TEMPLATES.map((template) => (
               <option key={template.id} value={template.id}>
                 {template.name}
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Message
-          <textarea value={message} onChange={(event) => setMessage(event.target.value)} />
-        </label>
-        <label>
-          Due date
-          <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-        </label>
-        <button type="submit">
+        </Field>
+
+        <Field label="Message">
+          <textarea
+            className={`${fieldClass} min-h-24 resize-y`}
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+          />
+        </Field>
+
+        <Field label="Due date">
+          <input
+            className={fieldClass}
+            type="date"
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+          />
+        </Field>
+
+        <button className={primaryButton} type="submit">
           <Send size={16} />
           Send request
         </button>
@@ -263,17 +300,17 @@ function RequestsForMe({ currentUserId, requests, onUpdate, onSelect }) {
 
   return (
     <Panel icon={<Inbox size={18} />} title="Requests For Me">
-      <RequestList emptyText="No feedback requests yet.">
+      <RequestList emptyText="No feedback requests for this user.">
         {items.map((request) => (
           <RequestCard key={request.id} request={request}>
             {request.status === "requested" ? (
               <>
-                <button type="button" onClick={() => onUpdate(request.id, { status: "accepted" })}>
+                <button className={primaryButton} type="button" onClick={() => onUpdate(request.id, { status: "accepted" })}>
                   <Check size={16} />
                   Accept
                 </button>
                 <button
-                  className="danger"
+                  className={dangerButton}
                   type="button"
                   onClick={() => onUpdate(request.id, { status: "declined" })}
                 >
@@ -283,7 +320,7 @@ function RequestsForMe({ currentUserId, requests, onUpdate, onSelect }) {
               </>
             ) : null}
             {["accepted", "submitted"].includes(request.status) ? (
-              <button type="button" onClick={() => onSelect(request.id)}>
+              <button className={secondaryButton} type="button" onClick={() => onSelect(request.id)}>
                 <ClipboardList size={16} />
                 Fill or view form
               </button>
@@ -300,15 +337,15 @@ function FeedbackReceived({ currentUserId, requests, onUpdate, onSelect }) {
 
   return (
     <Panel icon={<Eye size={18} />} title="Feedback Received">
-      <RequestList emptyText="Create a request to see feedback here.">
+      <RequestList emptyText="Requests created by this user will appear here.">
         {items.map((request) => (
           <RequestCard key={request.id} request={request}>
-            <button type="button" onClick={() => onSelect(request.id)}>
+            <button className={secondaryButton} type="button" onClick={() => onSelect(request.id)}>
               <Eye size={16} />
               Open detail
             </button>
             {request.status === "submitted" ? (
-              <button type="button" onClick={() => onUpdate(request.id, { status: "closed" })}>
+              <button className={primaryButton} type="button" onClick={() => onUpdate(request.id, { status: "closed" })}>
                 <Check size={16} />
                 Close
               </button>
@@ -335,50 +372,54 @@ function FeedbackDetail({ request, currentUserId, onClose, onUpdate }) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <section className="modal">
-        <div className="modal-header">
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-ink/60 p-5">
+      <section className="max-h-[calc(100vh-40px)] w-full max-w-3xl overflow-auto rounded-md bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-line p-5">
           <div>
-            <p className="eyebrow">{template.name}</p>
-            <h2>
+            <p className="text-xs font-bold uppercase tracking-wide text-accent">{template.name}</p>
+            <h2 className="mt-1 text-xl font-bold">
               {requester.name} requested feedback from {giver.name}
             </h2>
           </div>
-          <button className="icon-button" type="button" aria-label="Close" onClick={onClose}>
+          <button className={`${secondaryButton} min-h-9 px-2.5`} type="button" aria-label="Close" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
 
-        {!canRead ? (
-          <p>You cannot view this feedback.</p>
-        ) : (
-          <form className="stack" onSubmit={submit}>
-            {template.questions.map((question, index) => (
-              <label key={question}>
-                {question}
-                <textarea
-                  value={answers[index] ?? ""}
-                  disabled={!canSubmit}
-                  onChange={(event) =>
-                    setAnswers({ ...answers, [index]: event.target.value })
-                  }
-                  required
-                />
-              </label>
-            ))}
-            <div className="actions end">
-              <button className="secondary" type="button" onClick={onClose}>
-                Cancel
-              </button>
-              {canSubmit ? (
-                <button type="submit">
-                  <Check size={16} />
-                  Submit feedback
+        <div className="p-5">
+          {!canRead ? (
+            <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
+              You cannot view this feedback.
+            </p>
+          ) : (
+            <form className="grid gap-4" onSubmit={submit}>
+              {template.questions.map((question, index) => (
+                <Field key={question} label={question}>
+                  <textarea
+                    className={`${fieldClass} min-h-24 resize-y disabled:bg-surface disabled:text-muted`}
+                    value={answers[index] ?? ""}
+                    disabled={!canSubmit}
+                    onChange={(event) =>
+                      setAnswers({ ...answers, [index]: event.target.value })
+                    }
+                    required
+                  />
+                </Field>
+              ))}
+              <div className="flex flex-wrap justify-end gap-2">
+                <button className={secondaryButton} type="button" onClick={onClose}>
+                  Cancel
                 </button>
-              ) : null}
-            </div>
-          </form>
-        )}
+                {canSubmit ? (
+                  <button className={primaryButton} type="submit">
+                    <Check size={16} />
+                    Submit feedback
+                  </button>
+                ) : null}
+              </div>
+            </form>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -386,19 +427,34 @@ function FeedbackDetail({ request, currentUserId, onClose, onUpdate }) {
 
 function Panel({ icon, title, children }) {
   return (
-    <section className="panel">
-      <div className="panel-title">
-        {icon}
-        <h2>{title}</h2>
+    <section className="min-h-[390px] rounded-md border border-line bg-white">
+      <div className="flex items-center gap-2 border-b border-line px-5 py-4">
+        <span className="text-brand">{icon}</span>
+        <h2 className="text-base font-bold">{title}</h2>
       </div>
-      {children}
+      <div className="p-5">{children}</div>
     </section>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label className="grid gap-2 text-sm font-semibold text-ink">
+      <span>{label}</span>
+      {children}
+    </label>
   );
 }
 
 function RequestList({ emptyText, children }) {
   const list = Array.isArray(children) ? children.filter(Boolean) : [children].filter(Boolean);
-  return list.length ? <div className="request-list">{list}</div> : <p className="empty">{emptyText}</p>;
+  return list.length ? (
+    <div className="grid gap-3">{list}</div>
+  ) : (
+    <p className="rounded-md border border-dashed border-line bg-surface p-4 text-center text-sm text-muted">
+      {emptyText}
+    </p>
+  );
 }
 
 function RequestCard({ request, children }) {
@@ -407,29 +463,37 @@ function RequestCard({ request, children }) {
   const giver = getUser(request.giverId);
 
   return (
-    <article className="request-card">
-      <div className="card-row">
-        <strong>{template.name}</strong>
-        <span className={`status ${request.status}`}>{request.status}</span>
+    <article className="rounded-md border border-line bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <strong className="text-sm">{template.name}</strong>
+        <span className={statusClass(request.status)}>{request.status}</span>
       </div>
-      <p>{request.message || "No message added."}</p>
-      <dl>
-        <div>
-          <dt>From</dt>
-          <dd>{requester.name}</dd>
-        </div>
-        <div>
-          <dt>To</dt>
-          <dd>{giver.name}</dd>
-        </div>
-        <div>
-          <dt>Due</dt>
-          <dd>{request.dueDate || "Not set"}</dd>
-        </div>
+      <p className="mt-3 text-sm leading-6 text-muted">{request.message || "No message added."}</p>
+      <dl className="mt-4 grid gap-3 rounded-md bg-surface p-3 text-sm">
+        <Info label="From" value={requester.name} />
+        <Info label="To" value={giver.name} />
+        <Info label="Due" value={request.dueDate || "Not set"} />
       </dl>
-      <div className="actions">{children}</div>
+      <div className="mt-4 flex flex-wrap gap-2">{children}</div>
     </article>
   );
+}
+
+function Info({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-xs font-bold uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-right font-semibold text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function statusClass(status) {
+  const base = "rounded-full px-2.5 py-1 text-xs font-bold capitalize";
+  if (status === "requested") return `${base} bg-amber-100 text-amber-800`;
+  if (status === "declined") return `${base} bg-red-100 text-red-700`;
+  if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
+  return `${base} bg-emerald-100 text-emerald-800`;
 }
 
 function getUser(userId) {

@@ -1,6 +1,6 @@
 # Feedback Process
 
-Next.js prototype for a feedback request workflow.
+Next.js and Tailwind CSS prototype for a feedback request workflow.
 
 ## Run locally
 
@@ -24,6 +24,7 @@ Open `http://localhost:3000`.
 
 - Frontend only.
 - Data saves in browser `localStorage`.
+- UI uses Tailwind CSS.
 - Two templates:
   - Learning Feedback
   - Project Completion Feedback

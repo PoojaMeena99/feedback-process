@@ -146,20 +146,7 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
-        <section className="grid gap-5 border-b border-line pb-6 lg:grid-cols-[1fr_320px]">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-accent">
-              Frontend prototype
-            </p>
-            <h1 className="mt-2 max-w-3xl text-3xl font-bold leading-tight text-ink md:text-5xl">
-              Manage feedback requests from one clean dashboard.
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-muted">
-              First understand the request, accept, submit, and close flow. Later this
-              same flow can connect with Express, MySQL, and Mattermost.
-            </p>
-          </div>
-
+        <section className="grid gap-5 border-b border-line pb-5 md:grid-cols-[320px_1fr]">
           <div className="card p-5">
             <p className="text-xs font-bold uppercase tracking-wide text-muted">Current user</p>
             <p className="mt-3 text-xl font-bold">{currentUser.name}</p>
@@ -169,15 +156,15 @@ export default function Home() {
               Reset demo
             </button>
           </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <Metric label="Waiting for me" value={waitingCount} />
+            <Metric label="Requested by me" value={requestedCount} />
+            <Metric label="Submitted feedback" value={submittedCount} />
+          </div>
         </section>
 
-        <section className="grid gap-3 py-5 md:grid-cols-3">
-          <Metric label="Waiting for me" value={waitingCount} />
-          <Metric label="Requested by me" value={requestedCount} />
-          <Metric label="Submitted feedback" value={submittedCount} />
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-3">
+        <section className="grid gap-5 pt-5 lg:grid-cols-3">
           <div id="create">
             <CreateRequest currentUserId={currentUserId} onCreate={createRequest} />
           </div>

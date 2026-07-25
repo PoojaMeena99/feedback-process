@@ -1,4 +1,5 @@
 import { getDatabasePool } from "../db/connection.js";
+import { sendFeedbackSubmittedNotification } from "../integrations/mattermost.js";
 import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
 
@@ -123,6 +124,18 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
     connection.release();
   }
 
-  return getFeedbackRequestById(requestId);
+  const feedbackRequest = await getFeedbackRequestById(requestId);
+
+  try {
+    const notification =
+      await sendFeedbackSubmittedNotification(feedbackRequest);
+    return { ...feedbackRequest, notification };
+  } catch (error) {
+    console.error("Mattermost notification failed:", error.message);
+    return {
+      ...feedbackRequest,
+      notification: { sent: false, reason: "Mattermost notification failed" },
+    };
+  }
 }
 

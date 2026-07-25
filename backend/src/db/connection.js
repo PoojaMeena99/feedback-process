@@ -1,4 +1,4 @@
-const mysql = require("mysql2/promise");
+import mysql from "mysql2/promise";
 
 function createDatabasePool() {
   return mysql.createPool({
@@ -22,7 +22,12 @@ function getDatabasePool() {
   return pool;
 }
 
-module.exports = {
-  getDatabasePool,
-};
+async function testDatabaseConnection() {
+  const databasePool = getDatabasePool();
+  await databasePool.query("SELECT 1");
+}
 
+export {
+  getDatabasePool,
+  testDatabaseConnection,
+};

@@ -42,13 +42,10 @@ const TEMPLATES = [
 ];
 
 const STORAGE_KEY = "feedback-process-requests";
-const buttonBase =
-  "inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-semibold transition";
-const primaryButton = `${buttonBase} bg-brand text-white hover:bg-brandDark`;
-const secondaryButton = `${buttonBase} border border-line bg-white text-ink hover:bg-surface`;
-const dangerButton = `${buttonBase} bg-red-700 text-white hover:bg-red-800`;
-const fieldClass =
-  "min-h-10 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15";
+const primaryButton = "btn btn-primary";
+const secondaryButton = "btn btn-secondary";
+const dangerButton = "btn btn-danger";
+const fieldClass = "field-control";
 
 function loadRequests() {
   if (typeof window === "undefined") return [];
@@ -163,7 +160,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="rounded-md border border-line bg-white p-5">
+          <div className="card p-5">
             <p className="text-xs font-bold uppercase tracking-wide text-muted">Current user</p>
             <p className="mt-3 text-xl font-bold">{currentUser.name}</p>
             <p className="mt-1 break-words text-sm text-muted">{currentUser.email}</p>
@@ -224,7 +221,7 @@ export default function Home() {
 
 function Metric({ label, value }) {
   return (
-    <div className="rounded-md border border-line bg-white p-4">
+    <div className="metric-card">
       <p className="text-2xl font-bold text-ink">{value}</p>
       <p className="mt-1 text-sm font-medium text-muted">{label}</p>
     </div>
@@ -388,7 +385,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onUpdate }) {
 
         <div className="p-5">
           {!canRead ? (
-            <p className="rounded-md border border-line bg-surface p-4 text-sm text-muted">
+            <p className="card bg-surface p-4 text-sm text-muted">
               You cannot view this feedback.
             </p>
           ) : (
@@ -427,8 +424,8 @@ function FeedbackDetail({ request, currentUserId, onClose, onUpdate }) {
 
 function Panel({ icon, title, children }) {
   return (
-    <section className="min-h-[390px] rounded-md border border-line bg-white">
-      <div className="flex items-center gap-2 border-b border-line px-5 py-4">
+    <section className="panel-card">
+      <div className="panel-header">
         <span className="text-brand">{icon}</span>
         <h2 className="text-base font-bold">{title}</h2>
       </div>
@@ -451,7 +448,7 @@ function RequestList({ emptyText, children }) {
   return list.length ? (
     <div className="grid gap-3">{list}</div>
   ) : (
-    <p className="rounded-md border border-dashed border-line bg-surface p-4 text-center text-sm text-muted">
+    <p className="empty-state">
       {emptyText}
     </p>
   );
@@ -463,7 +460,7 @@ function RequestCard({ request, children }) {
   const giver = getUser(request.giverId);
 
   return (
-    <article className="rounded-md border border-line bg-white p-4">
+    <article className="card p-4">
       <div className="flex items-start justify-between gap-3">
         <strong className="text-sm">{template.name}</strong>
         <span className={statusClass(request.status)}>{request.status}</span>
@@ -489,11 +486,11 @@ function Info({ label, value }) {
 }
 
 function statusClass(status) {
-  const base = "rounded-full px-2.5 py-1 text-xs font-bold capitalize";
-  if (status === "requested") return `${base} bg-amber-100 text-amber-800`;
-  if (status === "declined") return `${base} bg-red-100 text-red-700`;
-  if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
-  return `${base} bg-emerald-100 text-emerald-800`;
+  const base = "status-pill";
+  if (status === "requested") return `${base} status-requested`;
+  if (status === "declined") return `${base} status-declined`;
+  if (status === "closed") return `${base} status-closed`;
+  return `${base} status-active`;
 }
 
 function getUser(userId) {

@@ -4,16 +4,10 @@ import { useState } from "react";
 import {
   Check,
   ChevronDown,
-  ChevronRight,
-  ClipboardCheck,
-  FileText,
   Home as HomeIcon,
   Inbox,
   MessageCircle,
-  Plus,
   Send,
-  User,
-  Users,
   X,
 } from "lucide-react";
 
@@ -46,53 +40,6 @@ const TEMPLATES = [
   },
 ];
 
-const SAMPLE_ROWS = [
-  {
-    id: "sample-1",
-    receiverName: "Pooja Sharma",
-    initials: "PS",
-    project: "CCL Launch",
-    dueDate: "Due Jul 28",
-    dueMeta: "in 3 days",
-    visibility: "Receiver + Mentor",
-    status: "requested",
-    helper: "Give feedback to Pooja Sharma",
-  },
-  {
-    id: "sample-2",
-    receiverName: "Rohan Kapoor",
-    initials: "RK",
-    project: "Mobile App Redesign",
-    dueDate: "Due Aug 04",
-    dueMeta: "in 10 days",
-    visibility: "Private",
-    status: "requested",
-    helper: "Give feedback to Rohan Kapoor",
-  },
-  {
-    id: "sample-3",
-    receiverName: "Neha Patel",
-    initials: "NP",
-    project: "Customer Onboarding",
-    dueDate: "Due Aug 06",
-    dueMeta: "in 12 days",
-    visibility: "Receiver + Mentor",
-    status: "submitted",
-    helper: "Give feedback to Neha Patel",
-  },
-  {
-    id: "sample-4",
-    receiverName: "Arjun Mehta",
-    initials: "AM",
-    project: "Data Migration",
-    dueDate: "Due Aug 10",
-    dueMeta: "in 16 days",
-    visibility: "Private",
-    status: "requested",
-    helper: "Give feedback to Arjun Mehta",
-  },
-];
-
 const STORAGE_KEY = "feedback-process-requests";
 const primaryButton = "btn btn-primary";
 const secondaryButton = "btn btn-secondary";
@@ -115,9 +62,11 @@ export default function Home() {
   const currentUser = getUser(currentUserId);
   const selectedRequest = requests.find((request) => request.id === selectedRequestId);
   const pendingForMe = requests.filter((request) => request.giverId === currentUserId);
-  const feedbackForMe = requests.filter((request) => request.requesterId === currentUserId);
+  const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
   const submittedCount = requests.filter((request) => request.status === "submitted").length;
-  const tableRows = requests.length ? requests.map(toTableRow) : SAMPLE_ROWS;
+  const tableRows = requests
+    .filter((request) => request.giverId === currentUserId || request.requesterId === currentUserId)
+    .map(toTableRow);
 
   function saveRequests(nextRequests) {
     setRequests(nextRequests);
@@ -157,72 +106,72 @@ export default function Home() {
         <main className="border-x border-line bg-[#fbfcfe] px-7 py-8">
           <div className="mb-7 flex items-center justify-between gap-4">
             <h1 className="text-4xl font-bold tracking-tight text-[#111827]">Feedback Hub</h1>
-            <button className={primaryButton} type="button">
-              <Plus size={20} />
-              New Feedback
-            </button>
           </div>
 
           <section className="grid gap-5 xl:grid-cols-3">
             <StatCard
               icon={<Inbox size={28} />}
               tone="blue"
-              label="Pending Requests"
-              value={pendingForMe.length || 4}
-              helper="Requests awaiting feedback"
+              label="Waiting For Me"
+              value={pendingForMe.length}
+              helper="Requests where I need to give feedback"
             />
             <StatCard
-              icon={<Users size={28} />}
+              icon={<Send size={28} />}
               tone="green"
-              label="Feedback Received"
-              value={feedbackForMe.length || 12}
-              helper="Feedback received this month"
+              label="Requests Sent"
+              value={sentByMe.length}
+              helper="Feedback requests created by me"
             />
             <StatCard
-              icon={<MessageCircle size={28} />}
+              icon={<Check size={28} />}
               tone="amber"
-              label="Follow-ups"
-              value={submittedCount || 3}
-              helper="Actions needing attention"
+              label="Submitted"
+              value={submittedCount}
+              helper="Feedback responses submitted"
             />
           </section>
 
           <section className="mt-7 overflow-hidden rounded-xl border border-line bg-white shadow-sm">
             <div className="border-b border-line px-6 py-5">
-              <h2 className="text-2xl font-bold text-[#111827]">Pending Requests</h2>
+              <h2 className="text-2xl font-bold text-[#111827]">Feedback Requests</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left">
                 <thead className="bg-[#f8fafc] text-xs font-bold uppercase tracking-wide text-muted">
                   <tr>
-                    <th className="px-6 py-4">Feedback Receiver</th>
+                    <th className="px-6 py-4">Requester</th>
+                    <th className="px-4 py-4">Feedback Giver</th>
+                    <th className="px-4 py-4">Type</th>
                     <th className="px-4 py-4">Project</th>
                     <th className="px-4 py-4">Due Date</th>
-                    <th className="px-4 py-4">Visibility</th>
-                    <th className="px-4 py-4">Feedback Status</th>
+                    <th className="px-4 py-4">Status</th>
                     <th className="px-4 py-4">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {tableRows.map((row) => (
+                  {tableRows.length ? tableRows.map((row) => (
                     <tr key={row.id} className="hover:bg-[#f9fbff]">
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">
-                          <Avatar initials={row.initials} />
+                          <Avatar initials={row.requesterInitials} />
                           <div>
-                            <p className="text-base font-semibold text-[#111827]">{row.receiverName}</p>
-                            <p className="mt-1 text-sm text-muted">{row.helper}</p>
+                            <p className="text-base font-semibold text-[#111827]">{row.requesterName}</p>
+                            <p className="mt-1 text-sm text-muted">{row.requesterEmail}</p>
                           </div>
                         </div>
                       </td>
+                      <td className="px-4 py-5">
+                        <div className="flex items-center gap-3">
+                          <Avatar initials={row.giverInitials} small />
+                          <span className="font-semibold">{row.giverName}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-5 text-base font-medium">{row.type}</td>
                       <td className="px-4 py-5 text-base font-medium">{row.project}</td>
                       <td className="px-4 py-5">
-                        <p className={row.id === "sample-1" ? "font-semibold text-red-600" : "font-semibold"}>
-                          {row.dueDate}
-                        </p>
-                        <p className="mt-1 text-sm text-muted">{row.dueMeta}</p>
+                        <p className="font-semibold">{row.dueDate}</p>
                       </td>
-                      <td className="px-4 py-5 text-base">{row.visibility}</td>
                       <td className="px-4 py-5">
                         <span className={statusClass(row.status)}>{row.status}</span>
                       </td>
@@ -230,42 +179,24 @@ export default function Home() {
                         <button
                           className="rounded-md border border-blue-200 px-5 py-2 text-base font-semibold text-blue-700 hover:bg-blue-50"
                           type="button"
-                          onClick={() => !row.id.startsWith("sample") && setSelectedRequestId(row.id)}
+                          onClick={() => setSelectedRequestId(row.id)}
                         >
-                          View
+                          {row.giverId === currentUserId && row.status === "requested" ? "Fill" : "View"}
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr>
+                      <td className="px-6 py-12 text-center text-base text-muted" colSpan={7}>
+                        No feedback requests yet. Create a request from the right panel.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
             <div className="flex items-center justify-between border-t border-line px-6 py-4 text-base text-muted">
               <span>Showing 1 to {tableRows.length} of {tableRows.length} requests</span>
-              <button className="inline-flex items-center gap-2 font-semibold text-blue-700" type="button">
-                View all requests
-                <ChevronRight size={18} />
-              </button>
-            </div>
-          </section>
-
-          <section className="mt-7 rounded-xl border border-line bg-white shadow-sm">
-            <div className="border-b border-line px-6 py-5">
-              <h2 className="text-2xl font-bold text-[#111827]">Follow-up Actions</h2>
-            </div>
-            <div className="flex items-center justify-between gap-4 px-6 py-5">
-              <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-orange-100 text-orange-700">
-                  <ClipboardCheck size={24} />
-                </div>
-                <div>
-                  <p className="text-lg font-semibold">Improve weekly project updates</p>
-                  <p className="mt-1 text-base text-muted">For Pooja Sharma • Project: CCL Launch</p>
-                </div>
-              </div>
-              <span className="rounded-md bg-orange-100 px-3 py-2 text-sm font-semibold text-orange-700">
-                Follow-up Needed
-              </span>
             </div>
           </section>
         </main>
@@ -297,9 +228,7 @@ function Sidebar({ currentUser, currentUserId, onUserChange }) {
 
       <nav className="space-y-3 text-lg font-medium">
         <SidebarItem active icon={<HomeIcon size={22} />} label="Dashboard" />
-        <SidebarItem icon={<User size={22} />} label="My Feedback" />
-        <SidebarItem icon={<FileText size={22} />} label="Requests" />
-        <SidebarItem icon={<MessageCircle size={22} />} label="Follow-ups" />
+        <SidebarItem icon={<Inbox size={22} />} label="Feedback Requests" />
       </nav>
 
       <div className="mt-auto border-t border-line pt-7">
@@ -557,17 +486,21 @@ function statusClass(status) {
 }
 
 function toTableRow(request) {
+  const requester = getUser(request.requesterId);
   const giver = getUser(request.giverId);
+  const template = getTemplate(request.templateId);
   return {
     id: request.id,
-    receiverName: giver.name,
-    initials: giver.initials,
+    requesterName: requester.name,
+    requesterEmail: requester.email,
+    requesterInitials: requester.initials,
+    giverId: request.giverId,
+    giverName: giver.name,
+    giverInitials: giver.initials,
+    type: template.name,
     project: request.project || "CCL Launch",
     dueDate: request.dueDate ? `Due ${request.dueDate}` : "No due date",
-    dueMeta: request.dueDate ? "scheduled" : "not set",
-    visibility: request.visibility || "Receiver + Mentor",
     status: request.status,
-    helper: `Give feedback to ${giver.name}`,
   };
 }
 

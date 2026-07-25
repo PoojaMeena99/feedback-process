@@ -7,9 +7,9 @@ import {
   Home as HomeIcon,
   Inbox,
   MessageCircle,
+  Plus,
   Send,
   Sparkles,
-  X,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -33,6 +33,7 @@ export default function Home() {
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
 
   const currentUser = users.find((user) => user.id === currentUserId);
@@ -110,7 +111,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
       <AppHeader />
 
-      <div className="grid flex-1 lg:grid-cols-[260px_1fr_420px]">
+      <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
         <Sidebar />
 
         <main className="border-x border-line/70 bg-white/45 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8">
@@ -166,9 +167,15 @@ export default function Home() {
           </section>
 
           <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
-            <div className="flex items-center justify-between border-b border-line px-6 py-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
               <h2 className="text-2xl font-bold text-[#111827]">Feedback Requests</h2>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{tableRows.length} total</span>
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{tableRows.length} total</span>
+                <button className="inline-flex items-center gap-2 rounded-lg bg-[#252d70] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1e255e]" type="button" onClick={() => setIsCreateOpen(true)}>
+                  <Plus size={17} />
+                  Request feedback
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left">
@@ -233,7 +240,16 @@ export default function Home() {
           </section>
         </main>
 
-        <CreateFeedbackPanel currentUserId={currentUserId} users={users} templates={templates} onCreate={createRequest} />
+        {isCreateOpen ? (
+          <CreateFeedbackPanel
+            currentUserId={currentUserId}
+            currentUser={currentUser}
+            users={users}
+            templates={templates}
+            onCreate={createRequest}
+            onClose={() => setIsCreateOpen(false)}
+          />
+        ) : null}
       </div>
 
       <AppFooter />
@@ -278,7 +294,7 @@ function AppFooter() {
     <footer className="border-t border-slate-800 bg-slate-950 px-5 py-5 text-sm text-slate-400 sm:px-7">
       <div className="mx-auto flex max-w-[1800px] flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <p>© 2026 Feedback Hub. Built for clear, thoughtful feedback.</p>
-        <p className="font-medium text-slate-300">Feedback Process Prototype</p>
+        <p className="font-medium text-slate-300">Feedback Process</p>
       </div>
     </footer>
   );
@@ -335,7 +351,7 @@ function StatCard({ icon, tone, label, value, helper }) {
   );
 }
 
-function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
+function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onCreate, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
@@ -369,14 +385,21 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
           <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">New request</p>
-          <h2 className="text-3xl font-bold tracking-tight text-[#111827]">Ask for feedback</h2>
+          <h2 className="text-3xl font-bold tracking-tight text-[#111827]">Request feedback</h2>
         </div>
-        <button className="rounded-lg p-2 text-muted transition hover:bg-slate-100 hover:text-ink" type="button" aria-label="Close">
-          <X size={26} />
+        <button className="rounded-lg p-2 text-muted transition hover:bg-slate-100 hover:text-ink" type="button" aria-label="Close request form" onClick={onClose}>
+          ×
         </button>
       </div>
 
       <form className="grid gap-6" onSubmit={submit}>
+        <Field label="Request sent by">
+          <div className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-slate-50 px-4 text-base font-semibold text-slate-700">
+            <Avatar initials={initialsForName(currentUser.name)} small />
+            {currentUser.name}
+          </div>
+        </Field>
+
         <Field label="Feedback type">
           <SelectShell>
             <select className="w-full bg-transparent outline-none" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
@@ -389,7 +412,7 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
           </SelectShell>
         </Field>
 
-        <Field label="Feedback receiver">
+        <Field label="Who will give feedback?">
           <SelectShell>
             <Avatar initials={initialsForName(possibleGivers.find((user) => user.id === Number(giverId))?.name)} small />
             <select className="w-full bg-transparent outline-none" value={giverId} onChange={(event) => setGiverId(event.target.value)}>
@@ -400,6 +423,7 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
               ))}
             </select>
           </SelectShell>
+          <p className="text-sm font-normal text-muted">This person will receive the request and fill the feedback form.</p>
         </Field>
 
         <Field label="Due date">

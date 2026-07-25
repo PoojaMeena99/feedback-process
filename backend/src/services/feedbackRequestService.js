@@ -1,4 +1,5 @@
 import { getDatabasePool } from "../db/connection.js";
+import { sendFeedbackRequestNotification } from "../integrations/mattermost.js";
 import { ServiceError } from "./serviceError.js";
 
 const requestSelect = `
@@ -6,8 +7,10 @@ const requestSelect = `
     request.id,
     request.requester_id AS requesterId,
     requester.name AS requesterName,
+    requester.email AS requesterEmail,
     request.giver_id AS giverId,
     giver.name AS giverName,
+    giver.email AS giverEmail,
     request.template_id AS templateId,
     template.name AS templateName,
     request.message,
@@ -81,7 +84,19 @@ export async function createFeedbackRequest({
     [requesterId, giverId, templateId, message || null],
   );
 
-  return getFeedbackRequestById(result.insertId);
+  const feedbackRequest = await getFeedbackRequestById(result.insertId);
+
+  try {
+    const notification =
+      await sendFeedbackRequestNotification(feedbackRequest);
+    return { ...feedbackRequest, notification };
+  } catch (error) {
+    console.error("Mattermost notification failed:", error.message);
+    return {
+      ...feedbackRequest,
+      notification: { sent: false, reason: "Mattermost notification failed" },
+    };
+  }
 }
 
 export async function getRequestsForGiver(giverId) {

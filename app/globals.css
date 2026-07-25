@@ -4,13 +4,14 @@
 
 @layer base {
   :root {
-    color: #17211d;
-    background: #f6f8f6;
+    color: #1f2a24;
+    background: #f8faf8;
   }
 
   body {
     margin: 0;
-    background: #f6f8f6;
+    background: #f8faf8;
+    font-size: 16px;
   }
 
   button,
@@ -23,7 +24,7 @@
 
 @layer components {
   .btn {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-semibold transition;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-base font-semibold transition;
   }
 
   .btn-primary {
@@ -39,27 +40,27 @@
   }
 
   .field-control {
-    @apply min-h-10 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15;
+    @apply min-h-11 rounded-md border border-line bg-white px-3.5 py-2.5 text-base text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15;
   }
 
   .card {
-    @apply rounded-md border border-line bg-white;
+    @apply rounded-md border border-line bg-white shadow-sm;
   }
 
   .panel-card {
-    @apply min-h-[390px] rounded-md border border-line bg-white;
+    @apply min-h-[390px] rounded-md border border-line bg-white shadow-sm;
   }
 
   .panel-header {
-    @apply flex items-center gap-2 border-b border-line px-5 py-4;
+    @apply flex items-center gap-2 border-b border-line bg-white px-5 py-4;
   }
 
   .metric-card {
-    @apply rounded-md border border-line bg-white p-4;
+    @apply rounded-md border border-line bg-white p-5 shadow-sm;
   }
 
   .empty-state {
-    @apply rounded-md border border-dashed border-line bg-surface p-4 text-center text-sm text-muted;
+    @apply rounded-md border border-dashed border-line bg-surface p-5 text-center text-base text-muted;
   }
 
   .status-pill {

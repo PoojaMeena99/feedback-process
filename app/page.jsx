@@ -105,17 +105,17 @@ export default function Home() {
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-sm font-bold text-white">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-brand text-base font-bold text-white">
               FP
             </div>
             <div>
-              <p className="text-base font-bold">Feedback Process</p>
-              <p className="text-sm text-muted">Simple team feedback workflow</p>
+              <p className="text-lg font-bold">Feedback Process</p>
+              <p className="text-base text-muted">Simple team feedback workflow</p>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <nav className="flex gap-1 rounded-md border border-line bg-surface p-1 text-sm font-medium text-muted">
+            <nav className="flex gap-1 rounded-md border border-line bg-surface p-1 text-base font-medium text-muted">
               <a className="rounded px-3 py-2 hover:bg-white hover:text-ink" href="#create">
                 Create
               </a>
@@ -130,7 +130,7 @@ export default function Home() {
             <label className="flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2">
               <CircleUserRound size={18} className="text-muted" />
               <select
-                className="bg-transparent text-sm font-semibold outline-none"
+                className="bg-transparent text-base font-semibold outline-none"
                 value={currentUserId}
                 onChange={(event) => setCurrentUserId(event.target.value)}
               >
@@ -148,9 +148,9 @@ export default function Home() {
       <main className="mx-auto max-w-7xl px-5 py-6 lg:px-8">
         <section className="grid gap-5 border-b border-line pb-5 md:grid-cols-[320px_1fr]">
           <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted">Current user</p>
-            <p className="mt-3 text-xl font-bold">{currentUser.name}</p>
-            <p className="mt-1 break-words text-sm text-muted">{currentUser.email}</p>
+            <p className="text-sm font-bold uppercase tracking-wide text-muted">Current user</p>
+            <p className="mt-3 text-2xl font-bold">{currentUser.name}</p>
+            <p className="mt-1 break-words text-base text-muted">{currentUser.email}</p>
             <button className={`${secondaryButton} mt-5 w-full`} type="button" onClick={resetDemo}>
               <RotateCcw size={16} />
               Reset demo
@@ -197,7 +197,7 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-line bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 py-5 text-sm text-muted md:flex-row md:items-center md:justify-between lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 py-5 text-base text-muted md:flex-row md:items-center md:justify-between lg:px-8">
           <span className="font-semibold text-ink">Feedback Process Prototype</span>
           <span>Next.js + Tailwind CSS. Data is currently saved in localStorage.</span>
         </div>
@@ -209,8 +209,8 @@ export default function Home() {
 function Metric({ label, value }) {
   return (
     <div className="metric-card">
-      <p className="text-2xl font-bold text-ink">{value}</p>
-      <p className="mt-1 text-sm font-medium text-muted">{label}</p>
+      <p className="text-3xl font-bold text-ink">{value}</p>
+      <p className="mt-1 text-base font-medium text-muted">{label}</p>
     </div>
   );
 }
@@ -360,8 +360,8 @@ function FeedbackDetail({ request, currentUserId, onClose, onUpdate }) {
       <section className="max-h-[calc(100vh-40px)] w-full max-w-3xl overflow-auto rounded-md bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-line p-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-accent">{template.name}</p>
-            <h2 className="mt-1 text-xl font-bold">
+            <p className="text-sm font-bold uppercase tracking-wide text-accent">{template.name}</p>
+            <h2 className="mt-1 text-2xl font-bold">
               {requester.name} requested feedback from {giver.name}
             </h2>
           </div>
@@ -372,7 +372,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onUpdate }) {
 
         <div className="p-5">
           {!canRead ? (
-            <p className="card bg-surface p-4 text-sm text-muted">
+            <p className="card bg-surface p-4 text-base text-muted">
               You cannot view this feedback.
             </p>
           ) : (
@@ -414,7 +414,7 @@ function Panel({ icon, title, children }) {
     <section className="panel-card">
       <div className="panel-header">
         <span className="text-brand">{icon}</span>
-        <h2 className="text-base font-bold">{title}</h2>
+        <h2 className="text-lg font-bold">{title}</h2>
       </div>
       <div className="p-5">{children}</div>
     </section>
@@ -423,7 +423,7 @@ function Panel({ icon, title, children }) {
 
 function Field({ label, children }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold text-ink">
+    <label className="grid gap-2 text-base font-semibold text-ink">
       <span>{label}</span>
       {children}
     </label>
@@ -449,11 +449,11 @@ function RequestCard({ request, children }) {
   return (
     <article className="card p-4">
       <div className="flex items-start justify-between gap-3">
-        <strong className="text-sm">{template.name}</strong>
+        <strong className="text-base">{template.name}</strong>
         <span className={statusClass(request.status)}>{request.status}</span>
       </div>
-      <p className="mt-3 text-sm leading-6 text-muted">{request.message || "No message added."}</p>
-      <dl className="mt-4 grid gap-3 rounded-md bg-surface p-3 text-sm">
+      <p className="mt-3 text-base leading-7 text-muted">{request.message || "No message added."}</p>
+      <dl className="mt-4 grid gap-3 rounded-md bg-surface p-3 text-base">
         <Info label="From" value={requester.name} />
         <Info label="To" value={giver.name} />
         <Info label="Due" value={request.dueDate || "Not set"} />
@@ -466,7 +466,7 @@ function RequestCard({ request, children }) {
 function Info({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-xs font-bold uppercase tracking-wide text-muted">{label}</dt>
+      <dt className="text-sm font-bold uppercase tracking-wide text-muted">{label}</dt>
       <dd className="text-right font-semibold text-ink">{value}</dd>
     </div>
   );

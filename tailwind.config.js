@@ -4,13 +4,13 @@ const config = {
   theme: {
     extend: {
       colors: {
-        ink: "#17211d",
-        muted: "#647067",
-        line: "#dfe6e1",
-        surface: "#f6f8f6",
-        brand: "#245b46",
-        brandDark: "#18382c",
-        accent: "#c58b3b",
+        ink: "#1f2a24",
+        muted: "#68766f",
+        line: "#e3ebe6",
+        surface: "#f8faf8",
+        brand: "#3b7a61",
+        brandDark: "#2f654f",
+        accent: "#b9863d",
       },
     },
   },

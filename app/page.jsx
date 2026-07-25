@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  Bell,
   Check,
   CircleUserRound,
   ClipboardList,
@@ -59,6 +60,9 @@ export default function Home() {
 
   const currentUser = getUser(currentUserId);
   const selectedRequest = requests.find((request) => request.id === selectedRequestId);
+  const waitingCount = requests.filter((request) => request.giverId === currentUserId).length;
+  const receivedCount = requests.filter((request) => request.requesterId === currentUserId).length;
+  const closedCount = requests.filter((request) => request.status === "closed").length;
 
   function saveRequests(nextRequests) {
     setRequests(nextRequests);
@@ -94,12 +98,20 @@ export default function Home() {
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Feedback workflow prototype</p>
-          <h1>Request, submit, and close feedback</h1>
+    <>
+      <header className="site-header">
+        <div className="brand">
+          <span className="brand-mark">FP</span>
+          <div>
+            <strong>Feedback Process</strong>
+            <span>Team workflow prototype</span>
+          </div>
         </div>
+        <nav className="header-nav" aria-label="Main navigation">
+          <a href="#create">Create</a>
+          <a href="#requests">Requests</a>
+          <a href="#received">Received</a>
+        </nav>
         <label className="user-switcher">
           <CircleUserRound size={18} />
           <select value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)}>
@@ -112,40 +124,82 @@ export default function Home() {
         </label>
       </header>
 
-      <section className="current-user">
-        <strong>{currentUser.name}</strong>
-        <span>{currentUser.email}</span>
-        <button className="ghost-button" type="button" onClick={resetDemo}>
-          <RotateCcw size={16} />
-          Reset demo
-        </button>
-      </section>
+      <main className="app-shell">
+        <section className="hero">
+          <div>
+            <p className="eyebrow">Feedback workflow prototype</p>
+            <h1>Request, submit, and close feedback with a clean team flow</h1>
+            <p className="hero-copy">
+              Use this prototype to understand the full feedback journey before connecting
+              MySQL, Express APIs, and Mattermost notifications.
+            </p>
+          </div>
+          <div className="hero-panel">
+            <div className="hero-icon">
+              <Bell size={22} />
+            </div>
+            <p>Current session</p>
+            <strong>{currentUser.name}</strong>
+            <span>{currentUser.email}</span>
+          </div>
+        </section>
 
-      <section className="grid">
-        <CreateRequest currentUserId={currentUserId} onCreate={createRequest} />
-        <RequestsForMe
-          currentUserId={currentUserId}
-          requests={requests}
-          onUpdate={updateRequest}
-          onSelect={setSelectedRequestId}
-        />
-        <FeedbackReceived
-          currentUserId={currentUserId}
-          requests={requests}
-          onUpdate={updateRequest}
-          onSelect={setSelectedRequestId}
-        />
-      </section>
+        <section className="summary-strip" aria-label="Workflow summary">
+          <Metric label="Waiting for me" value={waitingCount} />
+          <Metric label="Requested by me" value={receivedCount} />
+          <Metric label="Closed feedback" value={closedCount} />
+          <button className="ghost-button" type="button" onClick={resetDemo}>
+            <RotateCcw size={16} />
+            Reset demo
+          </button>
+        </section>
 
-      {selectedRequest ? (
-        <FeedbackDetail
-          request={selectedRequest}
-          currentUserId={currentUserId}
-          onClose={() => setSelectedRequestId(null)}
-          onUpdate={updateRequest}
-        />
-      ) : null}
-    </main>
+        <section className="grid">
+          <div id="create">
+            <CreateRequest currentUserId={currentUserId} onCreate={createRequest} />
+          </div>
+          <div id="requests">
+            <RequestsForMe
+              currentUserId={currentUserId}
+              requests={requests}
+              onUpdate={updateRequest}
+              onSelect={setSelectedRequestId}
+            />
+          </div>
+          <div id="received">
+            <FeedbackReceived
+              currentUserId={currentUserId}
+              requests={requests}
+              onUpdate={updateRequest}
+              onSelect={setSelectedRequestId}
+            />
+          </div>
+        </section>
+
+        {selectedRequest ? (
+          <FeedbackDetail
+            request={selectedRequest}
+            currentUserId={currentUserId}
+            onClose={() => setSelectedRequestId(null)}
+            onUpdate={updateRequest}
+          />
+        ) : null}
+      </main>
+
+      <footer className="site-footer">
+        <span>Feedback Process Prototype</span>
+        <span>Next.js + localStorage now, Express + MySQL later</span>
+      </footer>
+    </>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div className="metric">
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
   );
 }
 

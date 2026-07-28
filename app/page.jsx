@@ -80,6 +80,7 @@ export default function Home() {
   async function createRequest(payload) {
     try {
       await api("/feedback-requests", { method: "POST", body: JSON.stringify({ ...payload, requesterId: currentUserId }) });
+      setIsCreateOpen(false);
       await loadRequests();
       return { ok: true };
     } catch (createError) {
@@ -359,7 +360,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     "Please share feedback for my learning progress.",
   );
   const [dueDate, setDueDate] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     if (!possibleGivers.some((user) => user.id === Number(giverId))) {
@@ -377,7 +378,11 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId) return;
     const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate });
-    setNotice(result.ok ? "Request sent." : result.message);
+    if (result.ok) {
+      onClose();
+      return;
+    }
+    setNotice(result.message);
   }
 
   return (
@@ -444,7 +449,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
           <Send size={22} />
           Send Request
         </button>
-        {notice ? <p className="text-center text-base font-medium text-blue-700">{notice}</p> : null}
+        {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">{notice}</p> : null}
       </form>
     </aside>
   );

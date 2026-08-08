@@ -6,6 +6,7 @@ import {
   Check,
   Home as HomeIcon,
   Inbox,
+  LogOut,
   MessageCircle,
   Plus,
   Send,
@@ -42,6 +43,7 @@ export default function Home() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const latestRequestLoad = useRef(0);
 
   const currentUser = users.find((user) => user.id === currentUserId);
@@ -159,6 +161,19 @@ export default function Home() {
     }
   }
 
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    setError("");
+
+    try {
+      await api("/auth/logout", { method: "POST" });
+      router.replace("/login");
+    } catch (logoutError) {
+      setError(logoutError.message || "Could not log out. Please try again.");
+      setIsLoggingOut(false);
+    }
+  }
+
   if (isAuthLoading) {
     return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback Hub…</main>;
   }
@@ -175,7 +190,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
-      <AppHeader currentUser={currentUser} />
+      <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
         <Sidebar />
@@ -336,7 +351,7 @@ export default function Home() {
   );
 }
 
-function AppHeader({ currentUser }) {
+function AppHeader({ currentUser, onLogout, isLoggingOut }) {
   return (
     <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
@@ -356,6 +371,15 @@ function AppHeader({ currentUser }) {
             <span className="text-blue-100">Logged in as</span>
             <span className="font-semibold">{currentUser.name}</span>
           </div>
+          <button
+            className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-3 py-2 font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onLogout}
+            disabled={isLoggingOut}
+          >
+            <LogOut size={16} />
+            {isLoggingOut ? "Logging out…" : "Log out"}
+          </button>
         </div>
       </div>
     </header>

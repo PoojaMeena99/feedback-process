@@ -572,7 +572,12 @@ function RequestActions({ row, currentUserId, onView, onAction }) {
   }
 
   if (isRequester && row.status === "submitted") {
-    return <button className={buttonClass} type="button" onClick={() => onAction("acknowledge")}>Acknowledge</button>;
+    return (
+      <div className="flex gap-2">
+        <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
+        <button className={buttonClass} type="button" onClick={() => onAction("acknowledge")}>Acknowledge</button>
+      </div>
+    );
   }
 
   if (isRequester && row.status === "acknowledged") {
@@ -614,11 +619,18 @@ function toTableRow(request) {
     giverName: request.giverName,
     giverInitials: initialsForName(request.giverName),
     type: request.templateName,
-    dueDate: request.dueDate ? new Date(`${request.dueDate}T00:00:00`).toLocaleDateString("en-GB") : "No due date",
+    dueDate: formatDueDate(request.dueDate),
     status: request.status,
   };
 }
 
 function initialsForName(name = "?") {
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function formatDueDate(dueDate) {
+  if (!dueDate) return "No due date";
+
+  const [year, month, day] = dueDate.slice(0, 10).split("-");
+  return year && month && day ? `${day}/${month}/${year}` : "No due date";
 }

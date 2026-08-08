@@ -16,6 +16,8 @@ const requestSelect = `
     request.message,
     request.due_date AS dueDate,
     request.status,
+    request.acknowledgement_comment AS acknowledgementComment,
+    request.acknowledged_at AS acknowledgedAt,
     request.created_at AS createdAt
   FROM feedback_requests AS request
   JOIN users AS requester ON requester.id = request.requester_id
@@ -231,7 +233,7 @@ const lifecycleActions = {
  * Changes a request only when the correct person performs the next valid action.
  * Authentication will later provide actorId; for now the UI sends the selected user ID.
  */
-export async function performFeedbackRequestAction(requestId, actorId, action) {
+export async function performFeedbackRequestAction(requestId, actorId, action, acknowledgementComment = null) {
   const rule = lifecycleActions[action];
 
   if (!rule) {
@@ -270,10 +272,19 @@ export async function performFeedbackRequestAction(requestId, actorId, action) {
       );
     }
 
-    await connection.execute(
-      "UPDATE feedback_requests SET status = ? WHERE id = ?",
-      [rule.to, requestId],
-    );
+    if (action === "acknowledge") {
+      await connection.execute(
+        `UPDATE feedback_requests
+         SET status = ?, acknowledgement_comment = ?, acknowledged_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [rule.to, acknowledgementComment, requestId],
+      );
+    } else {
+      await connection.execute(
+        "UPDATE feedback_requests SET status = ? WHERE id = ?",
+        [rule.to, requestId],
+      );
+    }
 
     await connection.commit();
   } catch (error) {

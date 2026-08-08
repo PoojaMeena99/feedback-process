@@ -1,0 +1,89 @@
+import Link from "next/link";
+import { ArrowRight, LockKeyhole, MessageCircle } from "lucide-react";
+
+export default function LoginPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#f5f7ff] px-4 py-8 text-slate-950 sm:px-8">
+      <div className="w-full max-w-md">
+        <Link className="mx-auto mb-8 flex w-fit items-center gap-3" href="/">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white shadow-md">
+            <MessageCircle aria-hidden="true" size={21} />
+          </span>
+          <span>
+            <span className="block text-lg font-bold text-[#252d70]">Feedback Hub</span>
+            <span className="block text-xs text-slate-500">Feedback Process</span>
+          </span>
+        </Link>
+
+        <section className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_24px_70px_rgba(37,45,112,0.12)] sm:p-9">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#4c57a7]">
+            Welcome back
+          </p>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight">Log in to your account</h1>
+          <p className="mt-3 text-base text-slate-600">
+            Enter your email and password to continue.
+          </p>
+
+          <form className="mt-8 grid gap-5">
+            <AuthField
+              autoComplete="email"
+              id="email"
+              label="Email address"
+              placeholder="you@example.com"
+              type="email"
+            />
+            <AuthField
+              autoComplete="current-password"
+              id="password"
+              label="Password"
+              placeholder="Enter your password"
+              type="password"
+            />
+
+            <button
+              className="mt-1 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#252d70] px-5 text-base font-semibold text-white shadow-lg shadow-indigo-950/15 transition hover:bg-[#1e255e] focus:outline-none focus:ring-4 focus:ring-indigo-200"
+              type="submit"
+            >
+              Log in
+              <ArrowRight aria-hidden="true" size={18} />
+            </button>
+          </form>
+
+          <p className="mt-7 text-center text-sm text-slate-600">
+            Don&apos;t have an account?{" "}
+            <Link className="font-semibold text-[#36429a] hover:underline" href="/register">
+              Create account
+            </Link>
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function AuthField({ autoComplete, id, label, placeholder, type }) {
+  return (
+    <label className="grid gap-2" htmlFor={id}>
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      <span className="relative">
+        {type === "password" ? (
+          <LockKeyhole
+            aria-hidden="true"
+            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+            size={17}
+          />
+        ) : null}
+        <input
+          autoComplete={autoComplete}
+          className={`min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100 ${
+            type === "password" ? "pl-11" : ""
+          }`}
+          id={id}
+          name={id}
+          placeholder={placeholder}
+          type={type}
+        />
+      </span>
+    </label>
+  );
+}

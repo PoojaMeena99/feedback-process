@@ -2,6 +2,53 @@
 
 Base URL while running locally: `http://localhost:5000`
 
+## Authentication APIs
+
+Before using these APIs, set a long random `JWT_SECRET` in `backend/.env`.
+
+Database prerequisite (owned by Pooja): the `users` table needs a `password_hash` column and an `auth_sessions` table. The API code expects those database changes but does not create them.
+
+### Register
+
+`POST /auth/register`
+
+```json
+{
+  "name": "New User",
+  "email": "new.user@example.com",
+  "password": "minimum-8-characters"
+}
+```
+
+### Login
+
+`POST /auth/login`
+
+```json
+{
+  "email": "new.user@example.com",
+  "password": "minimum-8-characters"
+}
+```
+
+Register and login return a `token` and public user information. Rani's frontend should send that token in this header for protected routes:
+
+```text
+Authorization: Bearer <token>
+```
+
+### Current logged-in user
+
+`GET /auth/me`
+
+Requires the Bearer token header.
+
+### Logout
+
+`POST /auth/logout`
+
+Requires the Bearer token header. The server revokes that session, so the token cannot be used again.
+
 ## Routes built by the API owner
 
 ### Check the server

@@ -1,29 +1,45 @@
 import { submitFeedbackAnswers as saveFeedbackAnswers } from "../services/feedbackAnswerService.js";
 import {
+  applyFeedbackRequestAction,
   createFeedbackRequest as createFeedbackRequestInDatabase,
   getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
   getRequestsForGiver as getRequestsForGiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
-  updateFeedbackRequestStatus as updateFeedbackRequestStatusInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
 
-const allowedStatuses = ["requested", "submitted", "closed"];
+const statusActions = {
+  acknowledged: "acknowledge",
+  cancelled: "cancel",
+  closed: "close",
+  declined: "decline",
+};
 
 function parsePositiveInteger(value) {
   const parsedValue = Number(value);
   return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
 }
 
+function isValidDateString(value) {
+  if (!value) return true;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 export async function createFeedbackRequest(req, res) {
   const requesterId = parsePositiveInteger(req.body.requesterId);
   const giverId = parsePositiveInteger(req.body.giverId);
   const templateId = parsePositiveInteger(req.body.templateId);
-  const { message } = req.body;
+  const { dueDate, message } = req.body;
 
   if (!requesterId || !giverId || !templateId) {
     return res.status(400).json({
       message: "requesterId, giverId, and templateId must be positive integers",
+    });
+  }
+
+  if (!isValidDateString(dueDate)) {
+    return res.status(400).json({
+      message: "dueDate must use YYYY-MM-DD format",
     });
   }
 
@@ -32,6 +48,7 @@ export async function createFeedbackRequest(req, res) {
       requesterId,
       giverId,
       templateId,
+      dueDate,
       message,
     });
 
@@ -126,24 +143,29 @@ export async function submitFeedbackAnswers(req, res) {
 
 export async function updateFeedbackRequestStatus(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
+  const actorId = parsePositiveInteger(req.body.actorId);
   const { status } = req.body;
 
-  if (!requestId) {
+  if (!requestId || !actorId) {
     return res.status(400).json({
-      message: "Request ID must be a positive integer",
+      message: "Request ID and actorId must be positive integers",
     });
   }
 
-  if (!allowedStatuses.includes(status)) {
+  const action = statusActions[status];
+
+  if (!action) {
     return res.status(400).json({
-      message: "status must be requested, submitted, or closed",
+      message:
+        "status must be acknowledged, closed, declined, or cancelled. Use submit answers for submitted status.",
     });
   }
 
   try {
-    const feedbackRequest = await updateFeedbackRequestStatusInDatabase(
+    const feedbackRequest = await applyFeedbackRequestAction(
       requestId,
-      status,
+      actorId,
+      action,
     );
 
     return res.status(200).json({
@@ -155,3 +177,29 @@ export async function updateFeedbackRequestStatus(req, res) {
   }
 }
 
+export async function runFeedbackRequestAction(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  const actorId = parsePositiveInteger(req.body.actorId);
+  const { action } = req.params;
+
+  if (!requestId || !actorId) {
+    return res.status(400).json({
+      message: "Request ID and actorId must be positive integers",
+    });
+  }
+
+  try {
+    const feedbackRequest = await applyFeedbackRequestAction(
+      requestId,
+      actorId,
+      action,
+    );
+
+    return res.status(200).json({
+      message: `Feedback request ${action} completed`,
+      feedbackRequest,
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}

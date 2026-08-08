@@ -1,8 +1,10 @@
 import {
   authenticateToken,
+  createPasswordResetRequest,
   loginUser,
   logoutUser,
   registerUser,
+  resetUserPassword,
 } from "../services/authService.js";
 import { respondWithError } from "./respondWithError.js";
 
@@ -51,6 +53,28 @@ export async function login(req, res) {
     return res.status(200).json({
       message: "Login successful",
       user: result.user,
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function forgotPassword(req, res) {
+  try {
+    await createPasswordResetRequest(req.body);
+    return res.status(200).json({
+      message: "If this email exists, a reset link has been sent.",
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function resetPassword(req, res) {
+  try {
+    await resetUserPassword(req.body);
+    return res.status(200).json({
+      message: "Password reset successful. Please log in with your new password.",
     });
   } catch (error) {
     return respondWithError(res, error);

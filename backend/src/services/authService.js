@@ -182,3 +182,103 @@ export async function logoutUser(sessionId) {
     [sessionId],
   );
 }
+export async function createPasswordResetRequest({ email }) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+    throw new ServiceError(400, "email must be valid");
+  }
+
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+
+  try {
+    const [[user]] = await connection.execute(
+      "SELECT id, email FROM users WHERE email = ? AND is_active = TRUE",
+      [normalizedEmail],
+    );
+
+    // Keep the same API response even when this email has no account.
+    if (!user) return;
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    await connection.beginTransaction();
+    await connection.execute(
+      "DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL",
+      [user.id],
+    );
+    await connection.execute(
+      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
+      [crypto.randomUUID(), user.id, tokenHash, expiresAt],
+    );
+    await connection.commit();
+
+    const frontendOrigin = (process.env.FRONTEND_ORIGIN || "http://localhost:3000")
+      .split(",")[0]
+      .trim();
+    console.log(
+      `Password reset link for ${user.email}: ${frontendOrigin}/reset-password?token=${token}`,
+    );
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function resetUserPassword({ token, newPassword }) {
+  if (typeof token !== "string" || !token.trim()) {
+    throw new ServiceError(400, "reset token is required");
+  }
+
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    throw new ServiceError(400, "newPassword must contain at least 8 characters");
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(token.trim()).digest("hex");
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const [[resetToken]] = await connection.execute(
+      `SELECT id, user_id AS userId
+       FROM password_reset_tokens
+       WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()
+       FOR UPDATE`,
+      [tokenHash],
+    );
+
+    if (!resetToken) {
+      throw new ServiceError(400, "Reset link is invalid or has expired");
+    }
+
+    const [updateUserResult] = await connection.execute(
+      "UPDATE users SET password_hash = ? WHERE id = ? AND is_active = TRUE",
+      [passwordHash, resetToken.userId],
+    );
+    if (updateUserResult.affectedRows !== 1) {
+      throw new ServiceError(400, "This account is inactive");
+    }
+
+    await connection.execute(
+      "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?",
+      [resetToken.id],
+    );
+    await connection.execute(
+      "UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL",
+      [resetToken.userId],
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}

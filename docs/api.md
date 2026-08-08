@@ -4,11 +4,9 @@ Base URL while running locally: `http://localhost:5000`
 
 ## Authentication APIs
 
-Before using these APIs, set a long random `JWT_SECRET` in `backend/.env` and run the auth schema migration once:
+Before using these APIs, set a long random `JWT_SECRET` in `backend/.env`.
 
-```bash
-sudo mysql < backend/scripts/auth-schema.sql
-```
+Database prerequisite (owned by Pooja): the `users` table needs a `password_hash` column and an `auth_sessions` table. The API code expects those database changes but does not create them.
 
 ### Register
 

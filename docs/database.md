@@ -48,6 +48,19 @@ Important columns:
 - `revoked_at`: set when logout revokes the session
 - `created_at`: timestamp when the session was created
 
+### password_reset_tokens
+
+Stores password reset tokens created by the authentication API.
+
+Important columns:
+
+- `id`: reset token id, stored as a UUID string
+- `user_id`: connects the reset token to `users.id`
+- `token_hash`: hashed reset token, never the plain reset token
+- `expires_at`: when the reset token should stop working
+- `used_at`: set when the token has already been used
+- `created_at`: timestamp when the token was created
+
 ### feedback_templates
 
 Stores feedback form types.
@@ -110,6 +123,7 @@ ORDER BY id DESC;
 users.id -> feedback_requests.requester_id
 users.id -> feedback_requests.giver_id
 users.id -> auth_sessions.user_id
+users.id -> password_reset_tokens.user_id
 
 feedback_templates.id -> template_questions.template_id
 feedback_templates.id -> feedback_requests.template_id
@@ -167,6 +181,7 @@ Check authentication columns:
 ```sql
 DESC users;
 DESC auth_sessions;
+DESC password_reset_tokens;
 ```
 
 Check that seed users have bcrypt hashes:

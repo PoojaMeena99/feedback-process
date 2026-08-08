@@ -22,7 +22,7 @@ export default function LoginPage() {
 
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/auth/login`,
+        `${process.env.NEXT_PUBLIC_API_URL || "/api"}/auth/login`,
         {
           method: "POST",
           credentials: "include",

@@ -24,4 +24,3 @@ the routes and controllers.
 - A duplicate open request is rejected.
 - Only the selected giver can submit answers.
 - A submitted request cannot be submitted again.
-

@@ -154,4 +154,3 @@ export async function updateFeedbackRequestStatus(req, res) {
     return respondWithError(res, error);
   }
 }
-

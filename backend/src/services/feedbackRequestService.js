@@ -174,4 +174,3 @@ export async function updateFeedbackRequestStatus(requestId, status) {
 
   return getFeedbackRequestById(requestId);
 }
-

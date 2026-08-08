@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   giver_id INT NOT NULL,
   template_id INT NOT NULL,
   message TEXT,
+  due_date DATE NULL,
   status VARCHAR(30) DEFAULT 'requested',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -40,6 +41,21 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   FOREIGN KEY (giver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
+
+SET @add_due_date_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN due_date DATE NULL AFTER message',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'due_date'
+);
+PREPARE add_due_date_column_statement FROM @add_due_date_column;
+EXECUTE add_due_date_column_statement;
+DEALLOCATE PREPARE add_due_date_column_statement;
 
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -59,6 +75,7 @@ SELECT
   giver.name AS giver_name,
   template.name AS feedback_type,
   request.message,
+  request.due_date,
   request.status,
   request.created_at
 FROM feedback_requests AS request

@@ -21,8 +21,32 @@ Columns:
 - `id`: unique user id
 - `name`: display name
 - `email`: unique email
+- `password_hash`: bcrypt password hash, never a plain-text password
+- `is_active`: whether the user can log in
 - `role`: default role, currently `member`
 - `created_at`: timestamp when the user was created
+- `updated_at`: timestamp updated automatically when the user row changes
+
+Seed demo passwords:
+
+- Rani Singh: `Rani@123`
+- Shanti Singh: `Shanti@123`
+- Pooja: `Pooja@123`
+- Swari: `Swari@123`
+
+Only bcrypt hashes are stored in MySQL. These plain-text demo passwords are only for local testing.
+
+### auth_sessions
+
+Stores active login sessions created by the authentication API.
+
+Important columns:
+
+- `id`: session id, stored as a UUID string
+- `user_id`: connects the session to `users.id`
+- `expires_at`: when the session should stop working
+- `revoked_at`: set when logout revokes the session
+- `created_at`: timestamp when the session was created
 
 ### feedback_templates
 
@@ -85,6 +109,7 @@ ORDER BY id DESC;
 ```text
 users.id -> feedback_requests.requester_id
 users.id -> feedback_requests.giver_id
+users.id -> auth_sessions.user_id
 
 feedback_templates.id -> template_questions.template_id
 feedback_templates.id -> feedback_requests.template_id
@@ -99,6 +124,13 @@ From the repo root:
 
 ```bash
 sudo mysql < backend/scripts/schema.sql
+sudo mysql < backend/scripts/seed.sql
+```
+
+For an existing database, you can run the auth migration without deleting feedback data:
+
+```bash
+sudo mysql < backend/scripts/auth_migration.sql
 sudo mysql < backend/scripts/seed.sql
 ```
 
@@ -127,7 +159,22 @@ SHOW TABLES;
 Show users:
 
 ```sql
-SELECT id, name, email FROM users;
+SELECT id, name, email, is_active FROM users;
+```
+
+Check authentication columns:
+
+```sql
+DESC users;
+DESC auth_sessions;
+```
+
+Check that seed users have bcrypt hashes:
+
+```sql
+SELECT id, name, email, LEFT(password_hash, 7) AS hash_prefix
+FROM users
+ORDER BY id;
 ```
 
 Show template questions:
@@ -160,6 +207,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 `seed.sql` adds only starting reference data:
 
 - users
+- users' bcrypt password hashes
 - feedback templates
 - template questions
 

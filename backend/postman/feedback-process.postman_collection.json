@@ -51,7 +51,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"requesterId\": 1,\n  \"giverId\": 2,\n  \"templateId\": 1,\n  \"dueDate\": \"2026-08-12\",\n  \"message\": \"Please share feedback about my learning.\"\n}"
+          "raw": "{\n  \"requesterId\": 1,\n  \"giverId\": 2,\n  \"templateId\": 1,\n  \"message\": \"Please share feedback about my learning.\"\n}"
         },
         "url": "{{baseUrl}}/feedback-requests"
       }
@@ -95,74 +95,6 @@
       }
     },
     {
-      "name": "Cancel Feedback Request",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"actorId\": 1\n}"
-        },
-        "url": "{{baseUrl}}/feedback-requests/1/cancel"
-      }
-    },
-    {
-      "name": "Decline Feedback Request",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"actorId\": 2\n}"
-        },
-        "url": "{{baseUrl}}/feedback-requests/1/decline"
-      }
-    },
-    {
-      "name": "Acknowledge Feedback",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"actorId\": 1\n}"
-        },
-        "url": "{{baseUrl}}/feedback-requests/1/acknowledge"
-      }
-    },
-    {
-      "name": "Close Feedback Request",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"actorId\": 1\n}"
-        },
-        "url": "{{baseUrl}}/feedback-requests/1/close"
-      }
-    },
-    {
       "name": "Update Feedback Request Status",
       "request": {
         "method": "PATCH",
@@ -174,7 +106,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"actorId\": 1,\n  \"status\": \"closed\"\n}"
+          "raw": "{\n  \"status\": \"closed\"\n}"
         },
         "url": "{{baseUrl}}/feedback-requests/1/status"
       }

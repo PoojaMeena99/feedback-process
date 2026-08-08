@@ -74,7 +74,6 @@ http://localhost:5000/templates/1/questions
   "requesterId": 1,
   "giverId": 2,
   "templateId": 1,
-  "dueDate": "2026-08-12",
   "message": "Please share feedback about my learning."
 }
 ```
@@ -116,57 +115,6 @@ Example: `GET /feedback-requests/requester/1`
 
 ```json
 {
-  "actorId": 1,
   "status": "closed"
-}
-```
-
-This route also uses the lifecycle rules. Use submit answers for `submitted` status.
-
-### Cancel a request
-
-Only the requester can cancel a `requested` request.
-
-`PATCH /feedback-requests/:id/cancel`
-
-```json
-{
-  "actorId": 1
-}
-```
-
-### Decline a request
-
-Only the selected feedback giver can decline a `requested` request.
-
-`PATCH /feedback-requests/:id/decline`
-
-```json
-{
-  "actorId": 2
-}
-```
-
-### Acknowledge submitted feedback
-
-Only the requester can acknowledge a `submitted` request.
-
-`PATCH /feedback-requests/:id/acknowledge`
-
-```json
-{
-  "actorId": 1
-}
-```
-
-### Close an acknowledged request
-
-Only the requester can close an `acknowledged` request.
-
-`PATCH /feedback-requests/:id/close`
-
-```json
-{
-  "actorId": 1
 }
 ```

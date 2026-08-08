@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
-  Ban,
   Check,
   Home as HomeIcon,
   Inbox,
@@ -61,7 +60,7 @@ export default function Home() {
   const sentByMe = requests.filter((request) => request.requesterId === currentUser?.id);
   const submittedCount = requests.filter(
     (request) =>
-      ["submitted", "acknowledged", "closed"].includes(request.status) &&
+      request.status === "submitted" &&
       (request.giverId === currentUser?.id || request.requesterId === currentUser?.id),
   ).length;
 
@@ -137,7 +136,6 @@ export default function Home() {
           requesterId: Number(currentUserId),
           giverId: Number(payload.giverId),
           templateId: Number(payload.templateId),
-          dueDate: payload.dueDate || null,
           message: payload.message,
         }),
       });
@@ -166,18 +164,6 @@ export default function Home() {
       body: JSON.stringify({
         giverId: Number(currentUserId),
         answers,
-      }),
-    });
-    setSelectedRequest(null);
-    await loadDashboard(currentUserId);
-  }
-
-  async function runRequestAction(requestId, action) {
-    setError("");
-    await apiRequest(`/feedback-requests/${requestId}/${action}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        actorId: Number(currentUserId),
       }),
     });
     setSelectedRequest(null);
@@ -261,7 +247,6 @@ export default function Home() {
                     <th className="px-6 py-4">Requester</th>
                     <th className="px-4 py-4">Feedback Giver</th>
                     <th className="px-4 py-4">Type</th>
-                    <th className="px-4 py-4">Due Date</th>
                     <th className="px-4 py-4">Created</th>
                     <th className="px-4 py-4">Status</th>
                     <th className="px-4 py-4">Action</th>
@@ -291,9 +276,6 @@ export default function Home() {
                         </div>
                       </td>
                       <td className="px-4 py-5 text-base font-medium">{row.type}</td>
-                      <td className="px-4 py-5">
-                        <p className="font-semibold">{row.dueDate}</p>
-                      </td>
                       <td className="px-4 py-5">
                         <p className="font-semibold">{row.createdAt}</p>
                       </td>
@@ -342,7 +324,6 @@ export default function Home() {
           currentUserId={currentUser?.id}
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
-          onAction={runRequestAction}
         />
       ) : null}
     </div>
@@ -438,7 +419,6 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
-  const [dueDate, setDueDate] = useState("");
   const [message, setMessage] = useState(
     "Please share feedback for my learning progress.",
   );
@@ -459,7 +439,7 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
   async function submit(event) {
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId || !templateId) return;
-    const result = await onCreate({ giverId, templateId, dueDate, message });
+    const result = await onCreate({ giverId, templateId, message });
     setNotice(result.ok ? "Request saved in database." : result.message);
   }
 
@@ -501,15 +481,6 @@ function CreateFeedbackPanel({ currentUserId, users, templates, onCreate }) {
           </SelectShell>
         </Field>
 
-        <Field label="Due date (optional)">
-          <input
-            className={fieldClass}
-            type="date"
-            value={dueDate}
-            onChange={(event) => setDueDate(event.target.value)}
-          />
-        </Field>
-
         <Field label="Feedback request message (optional)">
           <textarea
             className={`${fieldClass} min-h-48 resize-y leading-7`}
@@ -547,12 +518,8 @@ function Field({ label, children }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAction }) {
+function FeedbackDetail({ request, currentUserId, onClose, onSubmit }) {
   const canSubmit = currentUserId === request.giverId && request.status === "requested";
-  const canDecline = currentUserId === request.giverId && request.status === "requested";
-  const canCancel = currentUserId === request.requesterId && request.status === "requested";
-  const canAcknowledge = currentUserId === request.requesterId && request.status === "submitted";
-  const canClose = currentUserId === request.requesterId && request.status === "acknowledged";
   const [answers, setAnswers] = useState({});
   const [error, setError] = useState("");
   const [questions, setQuestions] = useState([]);
@@ -587,16 +554,6 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAction })
     }
   }
 
-  async function runAction(action) {
-    setError("");
-
-    try {
-      await onAction(request.id, action);
-    } catch (apiError) {
-      setError(apiError.message);
-    }
-  }
-
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm sm:p-6">
       <section className="max-h-[calc(100vh-32px)] w-full max-w-3xl overflow-auto rounded-3xl border border-white/30 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.35)]">
@@ -609,10 +566,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAction })
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
               {request.requesterName} requested feedback from {request.giverName}
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Status: <span className="font-semibold capitalize">{request.status}</span>
-              {request.dueDate ? ` • Due ${formatDate(request.dueDate)}` : ""}
-            </p>
+            <p className="mt-2 text-sm text-slate-600">Share clear, kind, and actionable feedback.</p>
           </div>
           <button className={secondaryButton} type="button" aria-label="Close" onClick={onClose}>
             <X size={18} />
@@ -660,32 +614,8 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAction })
             <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
             <div className="flex flex-wrap gap-2">
               <button className={secondaryButton} type="button" onClick={onClose}>
-                Close
+                Cancel
               </button>
-              {canCancel ? (
-                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-5 font-semibold text-red-700 transition hover:bg-red-100" type="button" onClick={() => runAction("cancel")}>
-                  <X size={16} />
-                  Cancel request
-                </button>
-              ) : null}
-              {canDecline ? (
-                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-5 font-semibold text-orange-700 transition hover:bg-orange-100" type="button" onClick={() => runAction("decline")}>
-                  <Ban size={16} />
-                  Decline
-                </button>
-              ) : null}
-              {canAcknowledge ? (
-                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-5 font-semibold text-white shadow-lg shadow-emerald-100 transition hover:from-emerald-700 hover:to-teal-700" type="button" onClick={() => runAction("acknowledge")}>
-                  <Check size={16} />
-                  Acknowledge
-                </button>
-              ) : null}
-              {canClose ? (
-                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 font-semibold text-white shadow-lg shadow-slate-200 transition hover:bg-slate-800" type="button" onClick={() => runAction("close")}>
-                  <Check size={16} />
-                  Close request
-                </button>
-              ) : null}
               {canSubmit && !request.answers?.length ? (
                 <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-5 font-semibold text-white shadow-lg shadow-blue-200 transition hover:from-blue-700 hover:to-indigo-700" type="submit">
                   <Check size={16} />
@@ -711,10 +641,6 @@ function QuestionLabel({ index, text }) {
   );
 }
 
-function formatDate(value) {
-  return value ? new Date(value).toLocaleDateString() : "-";
-}
-
 function Avatar({ initials, small = false }) {
   return (
     <span
@@ -730,10 +656,7 @@ function Avatar({ initials, small = false }) {
 function statusClass(status) {
   const base = "status-pill";
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
-  if (status === "acknowledged") return `${base} bg-emerald-100 text-emerald-700`;
   if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
-  if (status === "declined") return `${base} bg-orange-100 text-orange-700`;
-  if (status === "cancelled") return `${base} bg-red-100 text-red-700`;
   return `${base} bg-blue-50 text-blue-700`;
 }
 
@@ -746,8 +669,7 @@ function toTableRow(request) {
     giverName: request.giverName,
     giverInitials: getInitials(request.giverName),
     type: request.templateName,
-    dueDate: formatDate(request.dueDate),
-    createdAt: formatDate(request.createdAt),
+    createdAt: request.createdAt ? new Date(request.createdAt).toLocaleDateString() : "-",
     status: request.status,
   };
 }

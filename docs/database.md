@@ -54,7 +54,7 @@ Important columns:
 - `template_id`: selected feedback type
 - `message`: optional request message
 - `due_date`: optional date by when feedback is expected
-- `status`: `requested`, `submitted`, `acknowledged`, `closed`, `declined`, or `cancelled`
+- `status`: `requested`, `submitted`, or `closed`
 
 ### feedback_answers
 
@@ -75,7 +75,7 @@ This view shows feedback requests with readable names instead of only IDs.
 Use it while testing:
 
 ```sql
-SELECT id, requester_name, giver_name, feedback_type, message, status
+SELECT id, requester_name, giver_name, feedback_type, due_date, message, status
 FROM feedback_request_details
 ORDER BY id DESC;
 ```

@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Bell,
   Check,
   Home as HomeIcon,
   Inbox,
@@ -176,7 +175,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
-      <AppHeader />
+      <AppHeader currentUser={currentUser} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
         <Sidebar />
@@ -190,11 +189,6 @@ export default function Home() {
               </div>
               <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback Hub</h1>
               <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
-            </div>
-            <div className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-white px-4 text-slate-900 shadow-sm">
-              <Avatar initials={initialsForName(currentUser.name)} small />
-              <span className="text-sm font-medium text-muted">Logged in as</span>
-              <span className="text-base font-semibold">{currentUser.name}</span>
             </div>
           </div>
 
@@ -342,7 +336,7 @@ export default function Home() {
   );
 }
 
-function AppHeader() {
+function AppHeader({ currentUser }) {
   return (
     <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
@@ -356,9 +350,12 @@ function AppHeader() {
           </div>
         </div>
 
-        <div className="hidden items-center gap-2 text-sm font-medium text-blue-100 sm:flex">
-          <Bell size={18} />
-          <span>Share better feedback</span>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white shadow-sm sm:flex">
+            <Avatar initials={initialsForName(currentUser.name)} small />
+            <span className="text-blue-100">Logged in as</span>
+            <span className="font-semibold">{currentUser.name}</span>
+          </div>
         </div>
       </div>
     </header>

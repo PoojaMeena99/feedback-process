@@ -14,8 +14,14 @@ const port = process.env.PORT || 5000;
 // Allow the local Next.js dev server even if it automatically uses 3001/3002
 // because another development server is already running. Production should set
 // FRONTEND_ORIGIN to its exact deployed URL.
-const configuredOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:3000,http://localhost:3001,http://localhost:3002")
-  .split(",")
+const localDevelopmentOrigins = Array.from(
+  { length: 11 },
+  (_, index) => `http://localhost:${3000 + index}`,
+);
+const configuredOrigins = [
+  ...localDevelopmentOrigins,
+  ...(process.env.FRONTEND_ORIGIN || "").split(","),
+]
   .map((origin) => origin.trim())
   .filter(Boolean);
 

@@ -146,8 +146,18 @@ export default function Home() {
     }
   }
 
-  if (isAuthLoading || !currentUser) {
+  if (isAuthLoading) {
     return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback Hub…</main>;
+  }
+
+  if (!currentUser) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-xl font-semibold text-slate-900">Feedback Hub could not load</p>
+        <p className="text-base text-muted">{error || "Please sign in to continue."}</p>
+        <button className={primaryButton} onClick={() => router.push("/login")}>Go to login</button>
+      </main>
+    );
   }
 
   return (

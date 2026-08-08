@@ -53,7 +53,8 @@ Important columns:
 - `giver_id`: user who gives feedback
 - `template_id`: selected feedback type
 - `message`: optional request message
-- `status`: `requested`, `submitted`, or `closed`
+- `due_date`: optional date by when feedback is expected
+- `status`: `requested`, `submitted`, `acknowledged`, `closed`, `declined`, or `cancelled`
 
 ### feedback_answers
 
@@ -140,7 +141,7 @@ ORDER BY template_id, question_order;
 Show readable requests:
 
 ```sql
-SELECT id, requester_name, giver_name, feedback_type, message, status
+SELECT id, requester_name, giver_name, feedback_type, due_date, message, status
 FROM feedback_request_details
 ORDER BY id DESC;
 ```

@@ -17,10 +17,6 @@ the routes and controllers.
 - Shanti can submit answers.
 - The request status changes to `submitted`.
 - Rani can see the submitted feedback.
-- Rani can acknowledge submitted feedback.
-- Rani can close acknowledged feedback.
-- Rani can cancel a requested feedback request.
-- Shanti can decline a requested feedback request.
 
 ## MVP rules
 
@@ -28,6 +24,3 @@ the routes and controllers.
 - A duplicate open request is rejected.
 - Only the selected giver can submit answers.
 - A submitted request cannot be submitted again.
-- Only the requester can cancel, acknowledge, or close their request.
-- Only the selected giver can decline the request.
-- Invalid status actions are rejected.

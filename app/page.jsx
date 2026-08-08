@@ -1,7 +1,11 @@
 "use client";
 
+<<<<<<< HEAD
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+=======
+import { useEffect, useRef, useState } from "react";
+>>>>>>> 094f178 (Improve feedback acknowledgement flow)
 import {
   Bell,
   Check,
@@ -42,7 +46,11 @@ export default function Home() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
+<<<<<<< HEAD
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+=======
+  const latestRequestLoad = useRef(0);
+>>>>>>> 094f178 (Improve feedback acknowledgement flow)
 
   const currentUser = users.find((user) => user.id === currentUserId);
   const pendingForMe = requests.filter((request) => request.giverId === currentUserId);
@@ -74,15 +82,27 @@ export default function Home() {
 
   async function loadRequests(userId = currentUserId) {
     if (!userId) return;
+    const loadId = latestRequestLoad.current + 1;
+    latestRequestLoad.current = loadId;
+
     try {
       const [received, sent] = await Promise.all([
         api(`/feedback-requests/giver/${userId}`),
         api(`/feedback-requests/requester/${userId}`),
       ]);
+
+      // When the selected user changes quickly, ignore an older response.
+      if (loadId !== latestRequestLoad.current) return;
+
       const merged = new Map([...received.feedbackRequests, ...sent.feedbackRequests].map((request) => [request.id, request]));
-      setRequests([...merged.values()]);
+      const newestFirst = [...merged.values()].sort((first, second) => {
+        const dateDifference = new Date(second.createdAt) - new Date(first.createdAt);
+        return dateDifference || second.id - first.id;
+      });
+      setRequests(newestFirst);
       setError("");
     } catch (loadError) {
+      if (loadId !== latestRequestLoad.current) return;
       setError(loadError.message);
     }
   }
@@ -118,16 +138,18 @@ export default function Home() {
     await loadRequests();
   }
 
-  async function performRequestAction(requestId, action) {
+  async function performRequestAction(requestId, action, acknowledgementComment) {
     try {
       await api(`/feedback-requests/${requestId}/actions`, {
         method: "POST",
-        body: JSON.stringify({ actorId: currentUserId, action }),
+        body: JSON.stringify({ actorId: currentUserId, action, acknowledgementComment }),
       });
       await loadRequests();
       setError("");
+      return true;
     } catch (actionError) {
       setError(actionError.message);
+      return false;
     }
   }
 
@@ -230,6 +252,21 @@ export default function Home() {
                       </td>
                       <td className="px-4 py-5">
                         <span className={statusClass(row.status)}>{row.status}</span>
+                        {row.status === "submitted" && row.giverId === currentUserId ? (
+                          <p className="mt-1 text-xs font-medium text-slate-500">
+                            Waiting for {row.requesterName} to acknowledge
+                          </p>
+                        ) : null}
+                        {row.status === "declined" && row.requesterId === currentUserId ? (
+                          <p className="mt-1 text-xs font-medium text-red-700">
+                            {row.giverName} declined this feedback request
+                          </p>
+                        ) : null}
+                        {row.status === "acknowledged" && row.giverId === currentUserId ? (
+                          <p className="mt-1 text-xs font-medium text-violet-700">
+                            {row.requesterName} acknowledged this feedback
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-4 py-5">
                         <RequestActions
@@ -281,6 +318,7 @@ export default function Home() {
           currentUserId={currentUserId}
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
+          onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
         />
       ) : null}
     </div>
@@ -497,14 +535,21 @@ function Field({ label, children }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit }) {
+function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge }) {
   const template = request.template;
   const canSubmit = currentUserId === request.giverId && request.status === "requested";
+  const canAcknowledge = currentUserId === request.requesterId && request.status === "submitted";
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
+  const [acknowledgementComment, setAcknowledgementComment] = useState("");
 
   async function submit(event) {
     event.preventDefault();
     await onSubmit(request.id, template.questions.map((question) => ({ questionId: question.id, answer: answers[question.id] || "" })));
+  }
+
+  async function acknowledge() {
+    const wasAcknowledged = await onAcknowledge(request.id, acknowledgementComment);
+    if (wasAcknowledged) onClose();
   }
 
   return (
@@ -535,16 +580,40 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit }) {
               />
             </Field>
           ))}
+          {canAcknowledge ? (
+            <Field label="Acknowledgement comment (optional)">
+              <textarea
+                className={`${fieldClass} min-h-24 resize-y border-violet-200 bg-violet-50/40 leading-7 focus:bg-white`}
+                value={acknowledgementComment}
+                maxLength={500}
+                placeholder="For example: Thank you, this feedback is helpful."
+                onChange={(event) => setAcknowledgementComment(event.target.value)}
+              />
+              <p className="text-sm font-normal text-muted">{acknowledgementComment.length} / 500 characters</p>
+            </Field>
+          ) : null}
+          {!canSubmit && !canAcknowledge && request.acknowledgementComment ? (
+            <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-950">
+              <p className="font-semibold">Acknowledgement comment</p>
+              <p className="mt-1 whitespace-pre-wrap text-violet-800">{request.acknowledgementComment}</p>
+            </div>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
             <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
             <div className="flex flex-wrap gap-2">
             <button className={secondaryButton} type="button" onClick={onClose}>
-              Cancel
+              Close
             </button>
             {canSubmit ? (
               <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-5 font-semibold text-white shadow-lg shadow-blue-200 transition hover:from-blue-700 hover:to-indigo-700" type="submit">
                 <Check size={16} />
                 Submit feedback
+              </button>
+            ) : null}
+            {canAcknowledge ? (
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-5 font-semibold text-white shadow-lg shadow-violet-200 transition hover:from-violet-700 hover:to-indigo-700" type="button" onClick={() => void acknowledge()}>
+                <Check size={16} />
+                Acknowledge feedback
               </button>
             ) : null}
             </div>
@@ -584,7 +653,12 @@ function RequestActions({ row, currentUserId, onView, onAction }) {
   }
 
   if (isRequester && row.status === "acknowledged") {
-    return <button className={buttonClass} type="button" onClick={() => onAction("close")}>Close</button>;
+    return (
+      <div className="flex gap-2">
+        <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
+        <button className={buttonClass} type="button" onClick={() => onAction("close")}>Close</button>
+      </div>
+    );
   }
 
   return <button className={buttonClass} type="button" onClick={onView}>View</button>;

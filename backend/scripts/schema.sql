@@ -122,6 +122,36 @@ PREPARE add_due_date_column_statement FROM @add_due_date_column;
 EXECUTE add_due_date_column_statement;
 DEALLOCATE PREPARE add_due_date_column_statement;
 
+SET @add_acknowledgement_comment_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN acknowledgement_comment TEXT NULL AFTER status',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'acknowledgement_comment'
+);
+PREPARE add_acknowledgement_comment_column_statement FROM @add_acknowledgement_comment_column;
+EXECUTE add_acknowledgement_comment_column_statement;
+DEALLOCATE PREPARE add_acknowledgement_comment_column_statement;
+
+SET @add_acknowledged_at_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN acknowledged_at TIMESTAMP NULL AFTER acknowledgement_comment',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'acknowledged_at'
+);
+PREPARE add_acknowledged_at_column_statement FROM @add_acknowledged_at_column;
+EXECUTE add_acknowledged_at_column_statement;
+DEALLOCATE PREPARE add_acknowledged_at_column_statement;
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

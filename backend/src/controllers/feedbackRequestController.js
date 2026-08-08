@@ -128,7 +128,7 @@ export async function submitFeedbackAnswers(req, res) {
 export async function performFeedbackRequestAction(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
   const actorId = parsePositiveInteger(req.body.actorId);
-  const { action } = req.body;
+  const { action, acknowledgementComment } = req.body;
 
   if (!requestId || !actorId) {
     return res.status(400).json({
@@ -142,11 +142,20 @@ export async function performFeedbackRequestAction(req, res) {
     });
   }
 
+  if (acknowledgementComment !== undefined && typeof acknowledgementComment !== "string") {
+    return res.status(400).json({ message: "acknowledgementComment must be text" });
+  }
+
+  if (acknowledgementComment && acknowledgementComment.trim().length > 500) {
+    return res.status(400).json({ message: "Acknowledgement comment must be 500 characters or less" });
+  }
+
   try {
     const feedbackRequest = await performFeedbackRequestActionInDatabase(
       requestId,
       actorId,
       action,
+      acknowledgementComment?.trim() || null,
     );
 
     return res.status(200).json({

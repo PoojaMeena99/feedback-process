@@ -104,6 +104,19 @@ export default function Home() {
     await loadRequests();
   }
 
+  async function performRequestAction(requestId, action) {
+    try {
+      await api(`/feedback-requests/${requestId}/actions`, {
+        method: "POST",
+        body: JSON.stringify({ actorId: currentUserId, action }),
+      });
+      await loadRequests();
+      setError("");
+    } catch (actionError) {
+      setError(actionError.message);
+    }
+  }
+
   if (!currentUser) {
     return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback Hub…</main>;
   }
@@ -216,13 +229,12 @@ export default function Home() {
                         <span className={statusClass(row.status)}>{row.status}</span>
                       </td>
                       <td className="px-4 py-5">
-                        <button
-                          className="rounded-md border border-blue-200 px-5 py-2 text-base font-semibold text-blue-700 hover:bg-blue-50"
-                          type="button"
-                          onClick={() => void openRequest(row.id)}
-                        >
-                          {row.giverId === currentUserId && row.status === "requested" ? "Fill" : "View"}
-                        </button>
+                        <RequestActions
+                          row={row}
+                          currentUserId={currentUserId}
+                          onView={() => void openRequest(row.id)}
+                          onAction={(action) => void performRequestAction(row.id, action)}
+                        />
                       </td>
                     </tr>
                   )) : (
@@ -239,6 +251,11 @@ export default function Home() {
               <span>Showing 1 to {tableRows.length} of {tableRows.length} requests</span>
             </div>
           </section>
+          {error ? (
+            <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </p>
+          ) : null}
         </main>
 
         {isCreateOpen ? (
@@ -361,6 +378,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   );
   const [dueDate, setDueDate] = useState("");
   const [notice, setNotice] = useState(null);
+  const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
     if (!possibleGivers.some((user) => user.id === Number(giverId))) {
@@ -377,6 +395,10 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   async function submit(event) {
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId) return;
+    if (dueDate && dueDate < today) {
+      setNotice("Due date cannot be in the past.");
+      return;
+    }
     const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate });
     if (result.ok) {
       onClose();
@@ -432,7 +454,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
         </Field>
 
         <Field label="Due date">
-          <input className={fieldClass} type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          <input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
         </Field>
 
         <Field label="Feedback request message (optional)">
@@ -530,6 +552,36 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit }) {
   );
 }
 
+function RequestActions({ row, currentUserId, onView, onAction }) {
+  const isGiver = row.giverId === currentUserId;
+  const isRequester = row.requesterId === currentUserId;
+  const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
+  const destructiveButtonClass = "rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50";
+
+  if (isGiver && row.status === "requested") {
+    return (
+      <div className="flex gap-2">
+        <button className={buttonClass} type="button" onClick={onView}>Fill</button>
+        <button className={destructiveButtonClass} type="button" onClick={() => onAction("decline")}>Decline</button>
+      </div>
+    );
+  }
+
+  if (isRequester && row.status === "requested") {
+    return <button className={destructiveButtonClass} type="button" onClick={() => onAction("cancel")}>Cancel</button>;
+  }
+
+  if (isRequester && row.status === "submitted") {
+    return <button className={buttonClass} type="button" onClick={() => onAction("acknowledge")}>Acknowledge</button>;
+  }
+
+  if (isRequester && row.status === "acknowledged") {
+    return <button className={buttonClass} type="button" onClick={() => onAction("close")}>Close</button>;
+  }
+
+  return <button className={buttonClass} type="button" onClick={onView}>View</button>;
+}
+
 function Avatar({ initials, small = false }) {
   return (
     <span
@@ -545,6 +597,9 @@ function Avatar({ initials, small = false }) {
 function statusClass(status) {
   const base = "status-pill";
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
+  if (status === "acknowledged") return `${base} bg-violet-100 text-violet-700`;
+  if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
+  if (status === "declined" || status === "cancelled") return `${base} bg-red-100 text-red-700`;
   return `${base} bg-blue-50 text-blue-700`;
 }
 
@@ -552,13 +607,14 @@ function toTableRow(request) {
   return {
     id: request.id,
     requesterName: request.requesterName,
+    requesterId: request.requesterId,
     requesterEmail: "",
     requesterInitials: initialsForName(request.requesterName),
     giverId: request.giverId,
     giverName: request.giverName,
     giverInitials: initialsForName(request.giverName),
     type: request.templateName,
-    dueDate: "No due date",
+    dueDate: request.dueDate ? new Date(`${request.dueDate}T00:00:00`).toLocaleDateString("en-GB") : "No due date",
     status: request.status,
   };
 }

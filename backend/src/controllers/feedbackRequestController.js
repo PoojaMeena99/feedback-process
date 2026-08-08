@@ -4,11 +4,11 @@ import {
   getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
   getRequestsForGiver as getRequestsForGiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
-  updateFeedbackRequestStatus as updateFeedbackRequestStatusInDatabase,
+  performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
 
-const allowedStatuses = ["requested", "submitted", "closed"];
+const allowedActions = ["decline", "cancel", "acknowledge", "close"];
 
 function parsePositiveInteger(value) {
   const parsedValue = Number(value);
@@ -19,7 +19,7 @@ export async function createFeedbackRequest(req, res) {
   const requesterId = parsePositiveInteger(req.body.requesterId);
   const giverId = parsePositiveInteger(req.body.giverId);
   const templateId = parsePositiveInteger(req.body.templateId);
-  const { message } = req.body;
+  const { message, dueDate } = req.body;
 
   if (!requesterId || !giverId || !templateId) {
     return res.status(400).json({
@@ -33,6 +33,7 @@ export async function createFeedbackRequest(req, res) {
       giverId,
       templateId,
       message,
+      dueDate,
     });
 
     return res.status(201).json({
@@ -124,30 +125,32 @@ export async function submitFeedbackAnswers(req, res) {
   }
 }
 
-export async function updateFeedbackRequestStatus(req, res) {
+export async function performFeedbackRequestAction(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
-  const { status } = req.body;
+  const actorId = parsePositiveInteger(req.body.actorId);
+  const { action } = req.body;
 
-  if (!requestId) {
+  if (!requestId || !actorId) {
     return res.status(400).json({
-      message: "Request ID must be a positive integer",
+      message: "Request ID and actorId must be positive integers",
     });
   }
 
-  if (!allowedStatuses.includes(status)) {
+  if (!allowedActions.includes(action)) {
     return res.status(400).json({
-      message: "status must be requested, submitted, or closed",
+      message: "action must be decline, cancel, acknowledge, or close",
     });
   }
 
   try {
-    const feedbackRequest = await updateFeedbackRequestStatusInDatabase(
+    const feedbackRequest = await performFeedbackRequestActionInDatabase(
       requestId,
-      status,
+      actorId,
+      action,
     );
 
     return res.status(200).json({
-      message: "Feedback request status updated",
+      message: `Feedback request ${action}d`,
       feedbackRequest,
     });
   } catch (error) {

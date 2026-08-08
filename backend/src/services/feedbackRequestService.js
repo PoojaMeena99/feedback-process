@@ -14,6 +14,7 @@ const requestSelect = `
     request.template_id AS templateId,
     template.name AS templateName,
     request.message,
+    request.due_date AS dueDate,
     request.status,
     request.created_at AS createdAt
   FROM feedback_requests AS request
@@ -49,12 +50,14 @@ export async function createFeedbackRequest({
   giverId,
   templateId,
   message,
+  dueDate,
 }) {
   if (requesterId === giverId) {
     throw new ServiceError(400, "You cannot request feedback from yourself");
   }
 
   const pool = getDatabasePool();
+  const normalizedDueDate = normalizeDueDate(dueDate);
   await requireUser(pool, requesterId, "Requester");
   await requireUser(pool, giverId, "Feedback giver");
   await requireTemplate(pool, templateId);
@@ -79,9 +82,9 @@ export async function createFeedbackRequest({
 
   const [result] = await pool.execute(
     `INSERT INTO feedback_requests
-       (requester_id, giver_id, template_id, message, status)
-     VALUES (?, ?, ?, ?, 'requested')`,
-    [requesterId, giverId, templateId, message || null],
+       (requester_id, giver_id, template_id, message, due_date, status)
+     VALUES (?, ?, ?, ?, ?, 'requested')`,
+    [requesterId, giverId, templateId, message || null, normalizedDueDate],
   );
 
   const feedbackRequest = await getFeedbackRequestById(result.insertId);
@@ -97,6 +100,28 @@ export async function createFeedbackRequest({
       notification: { sent: false, reason: "Mattermost notification failed" },
     };
   }
+}
+
+function normalizeDueDate(dueDate) {
+  if (dueDate === undefined || dueDate === null || dueDate === "") {
+    return null;
+  }
+
+  if (typeof dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    throw new ServiceError(400, "dueDate must use YYYY-MM-DD format");
+  }
+
+  const parsed = new Date(`${dueDate}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dueDate) {
+    throw new ServiceError(400, "dueDate must be a valid calendar date");
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (dueDate < today) {
+    throw new ServiceError(400, "Due date cannot be in the past");
+  }
+
+  return dueDate;
 }
 
 export async function getRequestsForGiver(giverId) {
@@ -170,6 +195,92 @@ export async function updateFeedbackRequestStatus(requestId, status) {
 
   if (result.affectedRows === 0) {
     throw new ServiceError(404, "Feedback request not found");
+  }
+
+  return getFeedbackRequestById(requestId);
+}
+
+const lifecycleActions = {
+  decline: {
+    actorColumn: "giver_id",
+    actorLabel: "selected feedback giver",
+    from: "requested",
+    to: "declined",
+  },
+  cancel: {
+    actorColumn: "requester_id",
+    actorLabel: "requester",
+    from: "requested",
+    to: "cancelled",
+  },
+  acknowledge: {
+    actorColumn: "requester_id",
+    actorLabel: "requester",
+    from: "submitted",
+    to: "acknowledged",
+  },
+  close: {
+    actorColumn: "requester_id",
+    actorLabel: "requester",
+    from: "acknowledged",
+    to: "closed",
+  },
+};
+
+/**
+ * Changes a request only when the correct person performs the next valid action.
+ * Authentication will later provide actorId; for now the UI sends the selected user ID.
+ */
+export async function performFeedbackRequestAction(requestId, actorId, action) {
+  const rule = lifecycleActions[action];
+
+  if (!rule) {
+    throw new ServiceError(400, "Unsupported feedback request action");
+  }
+
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [[request]] = await connection.execute(
+      `SELECT id, requester_id AS requesterId, giver_id AS giverId, status
+       FROM feedback_requests
+       WHERE id = ?
+       FOR UPDATE`,
+      [requestId],
+    );
+
+    if (!request) {
+      throw new ServiceError(404, "Feedback request not found");
+    }
+
+    const expectedActorId =
+      rule.actorColumn === "giver_id" ? request.giverId : request.requesterId;
+
+    if (actorId !== expectedActorId) {
+      throw new ServiceError(403, `Only the ${rule.actorLabel} can ${action} this request`);
+    }
+
+    if (request.status !== rule.from) {
+      throw new ServiceError(
+        409,
+        `This request is ${request.status}; it can only be ${action}d while it is ${rule.from}`,
+      );
+    }
+
+    await connection.execute(
+      "UPDATE feedback_requests SET status = ? WHERE id = ?",
+      [rule.to, requestId],
+    );
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
 
   return getFeedbackRequestById(requestId);

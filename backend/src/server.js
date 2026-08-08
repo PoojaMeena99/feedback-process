@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 
 import healthRouter from "./routes/healthRoutes.js";
+import authRouter from "./routes/authRoutes.js";
 import feedbackRequestRouter from "./routes/feedbackRequestRoutes.js";
 import templateRouter from "./routes/templateRoutes.js";
 import userRouter from "./routes/userRoutes.js";
@@ -14,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/health", healthRouter);
+app.use("/auth", authRouter);
 app.use("/users", userRouter);
 app.use("/templates", templateRouter);
 app.use("/feedback-requests", feedbackRequestRouter);

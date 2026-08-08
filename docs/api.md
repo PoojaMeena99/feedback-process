@@ -74,9 +74,12 @@ http://localhost:5000/templates/1/questions
   "requesterId": 1,
   "giverId": 2,
   "templateId": 1,
-  "message": "Please share feedback about my learning."
+  "message": "Please share feedback about my learning.",
+  "dueDate": "2026-08-15"
 }
 ```
+
+`dueDate` is optional. When provided, it must be a valid `YYYY-MM-DD` date that is not in the past.
 
 ### Get requests received by a feedback giver
 
@@ -109,12 +112,20 @@ Example: `GET /feedback-requests/requester/1`
 }
 ```
 
-### Update request status
+### Perform a request lifecycle action
 
-`PATCH /feedback-requests/:id/status`
+`POST /feedback-requests/:id/actions`
 
 ```json
 {
-  "status": "closed"
+  "actorId": 1,
+  "action": "acknowledge"
 }
 ```
+
+Allowed actions and rules:
+
+- `decline`: only the feedback giver can decline a `requested` request.
+- `cancel`: only the requester can cancel a `requested` request.
+- `acknowledge`: only the requester can acknowledge a `submitted` request.
+- `close`: only the requester can close an `acknowledged` request.

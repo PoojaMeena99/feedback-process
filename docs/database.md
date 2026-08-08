@@ -53,8 +53,8 @@ Important columns:
 - `giver_id`: user who gives feedback
 - `template_id`: selected feedback type
 - `message`: optional request message
-- `due_date`: optional date by when feedback is expected
-- `status`: `requested`, `submitted`, or `closed`
+- `due_date`: optional deadline date for the feedback giver
+- `status`: `requested`, `submitted`, `acknowledged`, `closed`, `declined`, or `cancelled`
 
 ### feedback_answers
 
@@ -75,7 +75,7 @@ This view shows feedback requests with readable names instead of only IDs.
 Use it while testing:
 
 ```sql
-SELECT id, requester_name, giver_name, feedback_type, due_date, message, status
+SELECT id, requester_name, giver_name, feedback_type, message, due_date, status
 FROM feedback_request_details
 ORDER BY id DESC;
 ```
@@ -100,6 +100,12 @@ From the repo root:
 ```bash
 sudo mysql < backend/scripts/schema.sql
 sudo mysql < backend/scripts/seed.sql
+```
+
+For a database that was created before the due-date feature, run once:
+
+```bash
+sudo mysql < backend/scripts/add-due-date.sql
 ```
 
 Create the local app user once:
@@ -141,7 +147,7 @@ ORDER BY template_id, question_order;
 Show readable requests:
 
 ```sql
-SELECT id, requester_name, giver_name, feedback_type, due_date, message, status
+SELECT id, requester_name, giver_name, feedback_type, message, due_date, status
 FROM feedback_request_details
 ORDER BY id DESC;
 ```

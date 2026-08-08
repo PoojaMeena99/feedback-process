@@ -1,11 +1,7 @@
 "use client";
 
-<<<<<<< HEAD
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-=======
 import { useEffect, useRef, useState } from "react";
->>>>>>> 094f178 (Improve feedback acknowledgement flow)
 import {
   Bell,
   Check,
@@ -46,11 +42,8 @@ export default function Home() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
-<<<<<<< HEAD
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-=======
   const latestRequestLoad = useRef(0);
->>>>>>> 094f178 (Improve feedback acknowledgement flow)
 
   const currentUser = users.find((user) => user.id === currentUserId);
   const pendingForMe = requests.filter((request) => request.giverId === currentUserId);

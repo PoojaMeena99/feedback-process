@@ -65,7 +65,6 @@ async function createSession(connection, user) {
 export async function registerUser({ name, email, password }) {
   const normalizedEmail = normalizeEmail(email);
   validateRegistration({ name, email: normalizedEmail, password });
-  getJwtSecret();
 
   const passwordHash = await bcrypt.hash(password, 12);
   const pool = getDatabasePool();
@@ -94,10 +93,9 @@ export async function registerUser({ name, email, password }) {
       email: normalizedEmail,
       role: "member",
     };
-    const session = await createSession(connection, user);
     await connection.commit();
 
-    return { user, ...session };
+    return user;
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -141,13 +139,9 @@ export async function loginUser({ email, password }) {
   }
 }
 
-export async function authenticateToken(authorizationHeader) {
-  const token = authorizationHeader?.startsWith("Bearer ")
-    ? authorizationHeader.slice(7)
-    : null;
-
+export async function authenticateToken(token) {
   if (!token) {
-    throw new ServiceError(401, "A Bearer token is required");
+    throw new ServiceError(401, "You must be logged in");
   }
 
   let payload;

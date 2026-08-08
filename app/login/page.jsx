@@ -1,7 +1,46 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { ArrowRight, LockKeyhole, MessageCircle } from "lucide-react";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function updateField(event) {
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/auth/login`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Could not log in");
+
+      router.push("/");
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#f5f7ff] px-4 py-8 text-slate-950 sm:px-8">
       <div className="w-full max-w-md">
@@ -24,27 +63,34 @@ export default function LoginPage() {
             Enter your email and password to continue.
           </p>
 
-          <form className="mt-8 grid gap-5">
+          <form className="mt-8 grid gap-5" onSubmit={handleSubmit}>
             <AuthField
               autoComplete="email"
               id="email"
               label="Email address"
+              onChange={updateField}
               placeholder="you@example.com"
               type="email"
+              value={form.email}
             />
             <AuthField
               autoComplete="current-password"
               id="password"
               label="Password"
+              onChange={updateField}
               placeholder="Enter your password"
               type="password"
+              value={form.password}
             />
+
+            {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
             <button
               className="mt-1 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#252d70] px-5 text-base font-semibold text-white shadow-lg shadow-indigo-950/15 transition hover:bg-[#1e255e] focus:outline-none focus:ring-4 focus:ring-indigo-200"
+              disabled={isSubmitting}
               type="submit"
             >
-              Log in
+              {isSubmitting ? "Logging in…" : "Log in"}
               <ArrowRight aria-hidden="true" size={18} />
             </button>
           </form>
@@ -61,7 +107,7 @@ export default function LoginPage() {
   );
 }
 
-function AuthField({ autoComplete, id, label, placeholder, type }) {
+function AuthField({ autoComplete, id, label, onChange, placeholder, type, value }) {
   return (
     <label className="grid gap-2" htmlFor={id}>
       <span className="text-sm font-semibold text-slate-800">{label}</span>
@@ -80,8 +126,11 @@ function AuthField({ autoComplete, id, label, placeholder, type }) {
           }`}
           id={id}
           name={id}
+          onChange={onChange}
           placeholder={placeholder}
+          required
           type={type}
+          value={value}
         />
       </span>
     </label>

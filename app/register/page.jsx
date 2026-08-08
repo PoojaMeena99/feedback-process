@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -14,6 +18,54 @@ const benefits = [
 ];
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function updateField(event) {
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+
+    if (form.password !== form.confirmPassword) {
+      setError("Password and confirm password must match.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/auth/register`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            password: form.password,
+          }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Could not create account");
+
+      router.push("/login");
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f5f7ff] text-slate-950 lg:grid lg:grid-cols-[minmax(320px,0.9fr)_minmax(520px,1.1fr)]">
       <section className="relative hidden min-h-screen overflow-hidden bg-[#252d70] px-10 py-12 text-white lg:flex lg:flex-col lg:justify-between xl:px-16">
@@ -70,21 +122,23 @@ export default function RegisterPage() {
             <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Create your account</h2>
             <p className="mt-3 text-base text-slate-600">Enter your details to join your feedback workspace.</p>
 
-            <form className="mt-8 grid gap-5">
-              <AuthField autoComplete="name" id="name" label="Full name" placeholder="Enter your full name" type="text" />
-              <AuthField autoComplete="email" id="email" label="Email address" placeholder="you@example.com" type="email" />
+            <form className="mt-8 grid gap-5" onSubmit={handleSubmit}>
+              <AuthField autoComplete="name" id="name" label="Full name" onChange={updateField} placeholder="Enter your full name" type="text" value={form.name} />
+              <AuthField autoComplete="email" id="email" label="Email address" onChange={updateField} placeholder="you@example.com" type="email" value={form.email} />
               <div className="grid gap-5 sm:grid-cols-2">
-                <AuthField autoComplete="new-password" id="password" label="Password" placeholder="Minimum 8 characters" type="password" />
-                <AuthField autoComplete="new-password" id="confirmPassword" label="Confirm password" placeholder="Enter it again" type="password" />
+                <AuthField autoComplete="new-password" id="password" label="Password" onChange={updateField} placeholder="Minimum 8 characters" type="password" value={form.password} />
+                <AuthField autoComplete="new-password" id="confirmPassword" label="Confirm password" onChange={updateField} placeholder="Enter it again" type="password" value={form.confirmPassword} />
               </div>
+
+              {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
               <p className="flex items-start gap-2 text-sm text-slate-500">
                 <LockKeyhole aria-hidden="true" className="mt-0.5 shrink-0 text-[#4c57a7]" size={16} />
                 Use at least 8 characters. Your password will be securely protected.
               </p>
 
-              <button className="mt-1 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#252d70] px-5 text-base font-semibold text-white shadow-lg shadow-indigo-950/15 transition hover:bg-[#1e255e] focus:outline-none focus:ring-4 focus:ring-indigo-200" type="submit">
-                Create Account
+              <button className="mt-1 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#252d70] px-5 text-base font-semibold text-white shadow-lg shadow-indigo-950/15 transition hover:bg-[#1e255e] focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting} type="submit">
+                {isSubmitting ? "Creating account…" : "Create Account"}
                 <ArrowRight aria-hidden="true" size={18} />
               </button>
             </form>
@@ -100,7 +154,7 @@ export default function RegisterPage() {
   );
 }
 
-function AuthField({ autoComplete, id, label, placeholder, type }) {
+function AuthField({ autoComplete, id, label, onChange, placeholder, type, value }) {
   return (
     <label className="grid gap-2" htmlFor={id}>
       <span className="text-sm font-semibold text-slate-800">{label}</span>
@@ -109,8 +163,11 @@ function AuthField({ autoComplete, id, label, placeholder, type }) {
         className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100"
         id={id}
         name={id}
+        onChange={onChange}
         placeholder={placeholder}
+        required
         type={type}
+        value={value}
       />
     </label>
   );

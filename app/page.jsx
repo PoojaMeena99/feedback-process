@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   Check,
@@ -20,14 +21,20 @@ const fieldClass = "field-control";
 async function api(path, options) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.message || "Something went wrong");
+  if (!response.ok) {
+    const error = new Error(data.message || "Something went wrong");
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
 export default function Home() {
+  const router = useRouter();
   const [currentUserId, setCurrentUserId] = useState(null);
   const [users, setUsers] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -35,6 +42,7 @@ export default function Home() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const currentUser = users.find((user) => user.id === currentUserId);
   const pendingForMe = requests.filter((request) => request.giverId === currentUserId);
@@ -47,16 +55,22 @@ export default function Home() {
   useEffect(() => {
     async function loadReferenceData() {
       try {
-        const [userData, templateData] = await Promise.all([api("/users"), api("/templates")]);
+        const [authData, userData, templateData] = await Promise.all([api("/auth/me"), api("/users"), api("/templates")]);
         setUsers(userData.users);
         setTemplates(templateData.templates);
-        setCurrentUserId(userData.users[0]?.id ?? null);
+        setCurrentUserId(authData.user.id);
       } catch (loadError) {
+        if (loadError.status === 401) {
+          router.replace("/login");
+          return;
+        }
         setError(loadError.message);
+      } finally {
+        setIsAuthLoading(false);
       }
     }
     void loadReferenceData();
-  }, []);
+  }, [router]);
 
   async function loadRequests(userId = currentUserId) {
     if (!userId) return;
@@ -117,7 +131,7 @@ export default function Home() {
     }
   }
 
-  if (!currentUser) {
+  if (isAuthLoading || !currentUser) {
     return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback Hub…</main>;
   }
 
@@ -138,22 +152,11 @@ export default function Home() {
               <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback Hub</h1>
               <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
             </div>
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-white px-4 text-slate-900 shadow-sm">
+            <div className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-white px-4 text-slate-900 shadow-sm">
               <Avatar initials={initialsForName(currentUser.name)} small />
-              <span className="text-sm font-medium text-muted">Viewing as</span>
-              <select
-                className="bg-transparent text-base font-semibold outline-none"
-                value={currentUserId}
-                onChange={(event) => setCurrentUserId(Number(event.target.value))}
-                aria-label="Choose current user"
-              >
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <span className="text-sm font-medium text-muted">Logged in as</span>
+              <span className="text-base font-semibold">{currentUser.name}</span>
+            </div>
           </div>
 
           <section className="grid gap-5 xl:grid-cols-3">

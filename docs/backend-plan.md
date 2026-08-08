@@ -11,7 +11,7 @@ Build a simple feedback request backend using:
 - Database: MySQL
 - API testing: Postman or Thunder Client
 
-Current UI is only a prototype. Backend functionality will be built by the team as the learning part.
+Current UI is connected to the local backend API. Backend functionality should be tested with Postman or the browser before changing the UI.
 
 ## MVP Flow
 
@@ -92,6 +92,7 @@ Seed users:
 - Rani Singh
 - Shanti Singh
 - Pooja
+- Swari
 
 Seed templates:
 
@@ -172,12 +173,14 @@ Create `backend/.env`:
 ```env
 PORT=5000
 DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_password
+DB_PORT=3306
+DB_USER=feedback_user
+DB_PASSWORD=feedback123
 DB_NAME=feedback_process
+MATTERMOST_WEBHOOK_URL=
 ```
 
-Also create `backend/.env.example` with the same keys but no real password.
+`backend/.env` is ignored by Git. Each person creates this file on their own laptop from `backend/.env.example`.
 
 ## First Day Target
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bell,
   Check,
@@ -73,9 +73,13 @@ export default function Home() {
       }
     }
     void loadReferenceData();
+
+    // New registrations should appear for other logged-in users without a manual refresh.
+    const refreshUsers = window.setInterval(() => void loadReferenceData(), 3_000);
+    return () => window.clearInterval(refreshUsers);
   }, [router]);
 
-  async function loadRequests(userId = currentUserId) {
+  const loadRequests = useCallback(async (userId) => {
     if (!userId) return;
     const loadId = latestRequestLoad.current + 1;
     latestRequestLoad.current = loadId;
@@ -100,17 +104,27 @@ export default function Home() {
       if (loadId !== latestRequestLoad.current) return;
       setError(loadError.message);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void loadRequests();
-  }, [currentUserId]);
+    if (!currentUserId) return undefined;
+
+    const refreshRequests = () => void loadRequests(currentUserId);
+    refreshRequests();
+    const intervalId = window.setInterval(refreshRequests, 3_000);
+    window.addEventListener("focus", refreshRequests);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshRequests);
+    };
+  }, [currentUserId, loadRequests]);
 
   async function createRequest(payload) {
     try {
       await api("/feedback-requests", { method: "POST", body: JSON.stringify({ ...payload, requesterId: currentUserId }) });
       setIsCreateOpen(false);
-      await loadRequests();
+      await loadRequests(currentUserId);
       return { ok: true };
     } catch (createError) {
       return { ok: false, message: createError.message };
@@ -130,7 +144,7 @@ export default function Home() {
   async function submitAnswers(requestId, answers) {
     await api(`/feedback-requests/${requestId}/answers`, { method: "POST", body: JSON.stringify({ giverId: currentUserId, answers }) });
     setSelectedRequest(null);
-    await loadRequests();
+    await loadRequests(currentUserId);
   }
 
   async function performRequestAction(requestId, action, acknowledgementComment) {
@@ -139,7 +153,7 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify({ actorId: currentUserId, action, acknowledgementComment }),
       });
-      await loadRequests();
+      await loadRequests(currentUserId);
       setError("");
       return true;
     } catch (actionError) {

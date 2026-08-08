@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Bell,
   Check,
   Home as HomeIcon,
   Inbox,
@@ -191,7 +190,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
-      <AppHeader onLogout={handleLogout} isLoggingOut={isLoggingOut} />
+      <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
         <Sidebar />
@@ -205,11 +204,6 @@ export default function Home() {
               </div>
               <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback Hub</h1>
               <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
-            </div>
-            <div className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-white px-4 text-slate-900 shadow-sm">
-              <Avatar initials={initialsForName(currentUser.name)} small />
-              <span className="text-sm font-medium text-muted">Logged in as</span>
-              <span className="text-base font-semibold">{currentUser.name}</span>
             </div>
           </div>
 
@@ -357,7 +351,7 @@ export default function Home() {
   );
 }
 
-function AppHeader({ onLogout, isLoggingOut }) {
+function AppHeader({ currentUser, onLogout, isLoggingOut }) {
   return (
     <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
@@ -371,10 +365,11 @@ function AppHeader({ onLogout, isLoggingOut }) {
           </div>
         </div>
 
-        <div className="hidden items-center gap-4 text-sm font-medium text-blue-100 sm:flex">
-          <div className="flex items-center gap-2">
-            <Bell size={18} />
-            <span>Share better feedback</span>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white shadow-sm sm:flex">
+            <Avatar initials={initialsForName(currentUser.name)} small />
+            <span className="text-blue-100">Logged in as</span>
+            <span className="font-semibold">{currentUser.name}</span>
           </div>
           <button
             className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-3 py-2 font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"

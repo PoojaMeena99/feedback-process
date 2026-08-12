@@ -41,6 +41,7 @@ export default function Home() {
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
+  const [dueDateRequest, setDueDateRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -160,6 +161,21 @@ export default function Home() {
       return true;
     } catch (actionError) {
       setError(actionError.message);
+      return false;
+    }
+  }
+
+  async function updateDueDate(requestId, dueDate) {
+    try {
+      await api(`/feedback-requests/${requestId}/due-date`, {
+        method: "PATCH",
+        body: JSON.stringify({ dueDate }),
+      });
+      await loadRequests(currentUserId);
+      setError("");
+      return true;
+    } catch (updateError) {
+      setError(updateError.message);
       return false;
     }
   }
@@ -313,6 +329,7 @@ export default function Home() {
                           currentUserId={currentUserId}
                           onView={() => void openRequest(row.id)}
                           onAction={(action) => handleRequestAction(row, action)}
+                          onEditDueDate={() => setDueDateRequest(row)}
                         />
                       </td>
                     </tr>
@@ -374,6 +391,18 @@ export default function Home() {
             );
             if (wasDeclined) setDeclineRequest(null);
             return wasDeclined;
+          }}
+        />
+      ) : null}
+
+      {dueDateRequest ? (
+        <DueDateModal
+          request={dueDateRequest}
+          onClose={() => setDueDateRequest(null)}
+          onSubmit={async (dueDate) => {
+            const wasUpdated = await updateDueDate(dueDateRequest.id, dueDate);
+            if (wasUpdated) setDueDateRequest(null);
+            return wasUpdated;
           }}
         />
       ) : null}
@@ -517,7 +546,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   }
 
   return (
-    <aside className="border-l border-line/80 bg-white px-6 py-7 shadow-[-10px_0_30px_rgba(15,23,42,0.04)] sm:px-7 sm:py-8">
+    <aside className="border-l border-line/80 bg-white px-6 py-7 shadow-[-10px_0_30px_rgba(15,23,42,0.04)] sm:px-7 sm:py-8 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-72px)] lg:self-start lg:overflow-y-auto">
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
           <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">New request</p>
@@ -652,6 +681,106 @@ function DeclineFeedbackModal({ request, onClose, onSubmit }) {
   );
 }
 
+function DueDateModal({ request, onClose, onSubmit }) {
+  const [dueDate, setDueDate] = useState(request.rawDueDate ? request.rawDueDate.slice(0, 10) : "");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const source = request.rawDueDate ? new Date(`${request.rawDueDate.slice(0, 10)}T00:00:00`) : new Date();
+    return new Date(source.getFullYear(), source.getMonth(), 1);
+  });
+  const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (dueDate && dueDate < today) {
+      setNotice("Due date cannot be in the past.");
+      return;
+    }
+    setIsSubmitting(true);
+    setNotice("");
+    const wasUpdated = await onSubmit(dueDate);
+    if (!wasUpdated) setIsSubmitting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <section className="w-full max-w-xl rounded-3xl border border-white/30 bg-white p-7 shadow-[0_28px_90px_rgba(15,23,42,0.35)] sm:min-h-[440px] sm:p-10">
+        <p className="text-sm font-bold uppercase tracking-[0.14em] text-blue-600">Update request</p>
+        <h2 className="mt-2 text-2xl font-extrabold text-slate-950">Change due date</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">Choose a new deadline for {request.giverName}. Leave it empty to remove the due date.</p>
+        <form className="mt-6 grid gap-4" onSubmit={submit}>
+          <Field label="Due date">
+            <InlineDatePicker
+              dueDate={dueDate}
+              month={calendarMonth}
+              onMonthChange={setCalendarMonth}
+              onChange={setDueDate}
+              today={today}
+            />
+          </Field>
+          {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{notice}</p> : null}
+          <div className="flex justify-end gap-3 pt-2">
+            <button className={secondaryButton} type="button" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+            <button className={primaryButton} type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving…" : "Save due date"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
+  const monthName = month.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const cells = Array.from({ length: firstDay + daysInMonth }, (_, index) => index < firstDay ? null : index - firstDay + 1);
+
+  function toIso(day) {
+    const year = month.getFullYear();
+    const monthNumber = String(month.getMonth() + 1).padStart(2, "0");
+    return `${year}-${monthNumber}-${String(day).padStart(2, "0")}`;
+  }
+
+  function changeMonth(offset) {
+    onMonthChange(new Date(month.getFullYear(), month.getMonth() + offset, 1));
+  }
+
+  return (
+    <div className="rounded-xl border border-line bg-slate-50/70 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <button className="rounded-md border border-line bg-white px-3 py-1 text-sm font-bold text-slate-700" type="button" onClick={() => changeMonth(-1)}>‹</button>
+        <p className="text-sm font-bold text-slate-900">{monthName}</p>
+        <button className="rounded-md border border-line bg-white px-3 py-1 text-sm font-bold text-slate-700" type="button" onClick={() => changeMonth(1)}>›</button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted">
+        {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => <span key={`${day}-${index}`} className="py-1">{day}</span>)}
+        {cells.map((day, index) => {
+          if (!day) return <span key={`blank-${index}`} />;
+          const value = toIso(day);
+          const isPast = value < today;
+          const isSelected = value === dueDate;
+          return (
+            <button
+              key={value}
+              className={`rounded-md py-2 text-sm font-semibold transition ${isSelected ? "bg-blue-600 text-white" : isPast ? "cursor-not-allowed text-slate-300" : "text-slate-800 hover:bg-blue-100"}`}
+              type="button"
+              disabled={isPast}
+              onClick={() => onChange(value)}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex items-center justify-between text-sm">
+        <button className="font-semibold text-blue-700" type="button" onClick={() => onChange("")}>Remove date</button>
+        {dueDate ? <span className="text-muted">Selected: {formatDueDate(dueDate)}</span> : <span className="text-muted">No due date</span>}
+      </div>
+    </div>
+  );
+}
+
 function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge }) {
   const template = request.template;
   const canSubmit = currentUserId === request.giverId && ["requested", "overdue"].includes(request.status);
@@ -747,7 +876,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   );
 }
 
-function RequestActions({ row, currentUserId, onView, onAction }) {
+function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate }) {
   const isGiver = row.giverId === currentUserId;
   const isRequester = row.requesterId === currentUserId;
   const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
@@ -762,8 +891,13 @@ function RequestActions({ row, currentUserId, onView, onAction }) {
     );
   }
 
-  if (isRequester && row.status === "requested") {
-    return <button className={destructiveButtonClass} type="button" onClick={() => onAction("cancel")}>Cancel</button>;
+  if (isRequester && ["requested", "overdue"].includes(row.status)) {
+    return (
+      <div className="flex gap-2">
+        <button className={buttonClass} type="button" onClick={onEditDueDate}>Edit due date</button>
+        <button className={destructiveButtonClass} type="button" onClick={() => onAction("cancel")}>Cancel</button>
+      </div>
+    );
   }
 
   if (isRequester && row.status === "submitted") {
@@ -821,6 +955,7 @@ function toTableRow(request) {
     giverInitials: initialsForName(request.giverName),
     type: request.templateName,
     dueDate: formatDueDate(request.dueDate),
+    rawDueDate: request.dueDate,
     status: request.status,
     declineReason: request.declineReason,
   };

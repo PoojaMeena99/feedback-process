@@ -40,6 +40,7 @@ export default function Home() {
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [declineRequest, setDeclineRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -47,7 +48,9 @@ export default function Home() {
   const latestRequestLoad = useRef(0);
 
   const currentUser = users.find((user) => user.id === currentUserId);
-  const pendingForMe = requests.filter((request) => request.giverId === currentUserId);
+  const pendingForMe = requests.filter(
+    (request) => request.giverId === currentUserId && ["requested", "overdue"].includes(request.status),
+  );
   const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
   const submittedCount = requests.filter((request) => request.status === "submitted").length;
   const tableRows = requests
@@ -121,7 +124,7 @@ export default function Home() {
 
   async function createRequest(payload) {
     try {
-      await api("/feedback-requests", { method: "POST", body: JSON.stringify({ ...payload, requesterId: currentUserId }) });
+      await api("/feedback-requests", { method: "POST", body: JSON.stringify(payload) });
       setIsCreateOpen(false);
       await loadRequests(currentUserId);
       return { ok: true };
@@ -141,16 +144,16 @@ export default function Home() {
   }
 
   async function submitAnswers(requestId, answers) {
-    await api(`/feedback-requests/${requestId}/answers`, { method: "POST", body: JSON.stringify({ giverId: currentUserId, answers }) });
+    await api(`/feedback-requests/${requestId}/answers`, { method: "POST", body: JSON.stringify({ answers }) });
     setSelectedRequest(null);
     await loadRequests(currentUserId);
   }
 
-  async function performRequestAction(requestId, action, acknowledgementComment) {
+  async function performRequestAction(requestId, action, acknowledgementComment, declineReason) {
     try {
       await api(`/feedback-requests/${requestId}/actions`, {
         method: "POST",
-        body: JSON.stringify({ actorId: currentUserId, action, acknowledgementComment }),
+        body: JSON.stringify({ action, acknowledgementComment, declineReason }),
       });
       await loadRequests(currentUserId);
       setError("");
@@ -159,6 +162,15 @@ export default function Home() {
       setError(actionError.message);
       return false;
     }
+  }
+
+  function handleRequestAction(request, action) {
+    if (action === "decline") {
+      setDeclineRequest(request);
+      return;
+    }
+
+    void performRequestAction(request.id, action);
   }
 
   async function handleLogout() {
@@ -284,9 +296,10 @@ export default function Home() {
                           </p>
                         ) : null}
                         {row.status === "declined" && row.requesterId === currentUserId ? (
-                          <p className="mt-1 text-xs font-medium text-red-700">
-                            {row.giverName} declined this feedback request
-                          </p>
+                          <div className="mt-1 text-xs font-medium text-red-700">
+                            <p>{row.giverName} declined this feedback request</p>
+                            {row.declineReason ? <p className="mt-1 font-normal">Reason: {row.declineReason}</p> : null}
+                          </div>
                         ) : null}
                         {row.status === "acknowledged" && row.giverId === currentUserId ? (
                           <p className="mt-1 text-xs font-medium text-violet-700">
@@ -299,7 +312,7 @@ export default function Home() {
                           row={row}
                           currentUserId={currentUserId}
                           onView={() => void openRequest(row.id)}
-                          onAction={(action) => void performRequestAction(row.id, action)}
+                          onAction={(action) => handleRequestAction(row, action)}
                         />
                       </td>
                     </tr>
@@ -345,6 +358,23 @@ export default function Home() {
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
           onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
+        />
+      ) : null}
+
+      {declineRequest ? (
+        <DeclineFeedbackModal
+          request={declineRequest}
+          onClose={() => setDeclineRequest(null)}
+          onSubmit={async (reason) => {
+            const wasDeclined = await performRequestAction(
+              declineRequest.id,
+              "decline",
+              undefined,
+              reason,
+            );
+            if (wasDeclined) setDeclineRequest(null);
+            return wasDeclined;
+          }}
         />
       ) : null}
     </div>
@@ -573,9 +603,58 @@ function Field({ label, children }) {
   );
 }
 
+function DeclineFeedbackModal({ request, onClose, onSubmit }) {
+  const [reason, setReason] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (reason.trim().length < 3) {
+      setNotice("Please enter a short reason for declining this request.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setNotice("");
+    const wasDeclined = await onSubmit(reason);
+    if (!wasDeclined) setIsSubmitting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <section className="w-full max-w-lg rounded-3xl border border-white/30 bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.35)] sm:p-8">
+        <p className="text-sm font-bold uppercase tracking-[0.14em] text-red-600">Decline feedback request</p>
+        <h2 className="mt-2 text-2xl font-extrabold text-slate-950">Tell {request.requesterName} why</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">Your reason will be visible to the requester. You can still view this request later.</p>
+        <form className="mt-6 grid gap-4" onSubmit={submit}>
+          <Field label="Reason for declining">
+            <textarea
+              className={`${fieldClass} min-h-32 resize-y leading-7`}
+              value={reason}
+              maxLength={500}
+              placeholder="For example: I did not work closely enough on this project to give useful feedback."
+              onChange={(event) => setReason(event.target.value)}
+              required
+            />
+            <p className="text-sm font-normal text-muted">{reason.length} / 500 characters</p>
+          </Field>
+          {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{notice}</p> : null}
+          <div className="flex justify-end gap-3 pt-2">
+            <button className={secondaryButton} type="button" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+            <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-red-600 px-5 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Declining…" : "Decline request"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge }) {
   const template = request.template;
-  const canSubmit = currentUserId === request.giverId && request.status === "requested";
+  const canSubmit = currentUserId === request.giverId && ["requested", "overdue"].includes(request.status);
   const canAcknowledge = currentUserId === request.requesterId && request.status === "submitted";
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
@@ -636,6 +715,12 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
               <p className="mt-1 whitespace-pre-wrap text-violet-800">{request.acknowledgementComment}</p>
             </div>
           ) : null}
+          {!canSubmit && !canAcknowledge && request.declineReason ? (
+            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-950">
+              <p className="font-semibold">Decline reason</p>
+              <p className="mt-1 whitespace-pre-wrap text-red-800">{request.declineReason}</p>
+            </div>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
             <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
             <div className="flex flex-wrap gap-2">
@@ -668,7 +753,7 @@ function RequestActions({ row, currentUserId, onView, onAction }) {
   const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
   const destructiveButtonClass = "rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50";
 
-  if (isGiver && row.status === "requested") {
+  if (isGiver && ["requested", "overdue"].includes(row.status)) {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>Fill</button>
@@ -719,6 +804,7 @@ function statusClass(status) {
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
   if (status === "acknowledged") return `${base} bg-violet-100 text-violet-700`;
   if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
+  if (status === "overdue") return `${base} bg-amber-100 text-amber-800`;
   if (status === "declined" || status === "cancelled") return `${base} bg-red-100 text-red-700`;
   return `${base} bg-blue-50 text-blue-700`;
 }
@@ -736,6 +822,7 @@ function toTableRow(request) {
     type: request.templateName,
     dueDate: formatDueDate(request.dueDate),
     status: request.status,
+    declineReason: request.declineReason,
   };
 }
 

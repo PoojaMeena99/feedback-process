@@ -137,6 +137,21 @@ PREPARE add_acknowledgement_comment_column_statement FROM @add_acknowledgement_c
 EXECUTE add_acknowledgement_comment_column_statement;
 DEALLOCATE PREPARE add_acknowledgement_comment_column_statement;
 
+SET @add_decline_reason_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN decline_reason TEXT NULL AFTER status',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'decline_reason'
+);
+PREPARE add_decline_reason_column_statement FROM @add_decline_reason_column;
+EXECUTE add_decline_reason_column_statement;
+DEALLOCATE PREPARE add_decline_reason_column_statement;
+
 SET @add_acknowledged_at_column = (
   SELECT IF(
     COUNT(*) = 0,

@@ -8,8 +8,12 @@ import {
   performFeedbackRequestAction,
   submitFeedbackAnswers,
 } from "../controllers/feedbackRequestController.js";
+import { requireAuth } from "../controllers/authController.js";
 
 const router = Router();
+
+// Feedback data is private, so every request needs a valid login session.
+router.use(requireAuth);
 
 router.post("/", createFeedbackRequest);
 router.get("/giver/:userId", getRequestsForGiver);

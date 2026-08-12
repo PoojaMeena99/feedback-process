@@ -16,6 +16,7 @@ const requestSelect = `
     request.message,
     request.due_date AS dueDate,
     request.status,
+    request.decline_reason AS declineReason,
     request.acknowledgement_comment AS acknowledgementComment,
     request.acknowledged_at AS acknowledgedAt,
     request.created_at AS createdAt
@@ -45,6 +46,18 @@ async function requireTemplate(pool, templateId) {
   if (!template) {
     throw new ServiceError(404, "Feedback template not found");
   }
+}
+
+// This runs whenever requests are read. The dashboard refreshes every 3 seconds,
+// so an unanswered request changes from Requested to Overdue shortly after its due date passes.
+async function markOverdueRequests(pool) {
+  await pool.execute(
+    `UPDATE feedback_requests
+     SET status = 'overdue'
+     WHERE status = 'requested'
+       AND due_date IS NOT NULL
+       AND due_date < CURRENT_DATE()`,
+  );
 }
 
 export async function createFeedbackRequest({
@@ -129,6 +142,7 @@ function normalizeDueDate(dueDate) {
 export async function getRequestsForGiver(giverId) {
   const pool = getDatabasePool();
   await requireUser(pool, giverId, "Feedback giver");
+  await markOverdueRequests(pool);
 
   const [requests] = await pool.execute(
     `${requestSelect}
@@ -143,6 +157,7 @@ export async function getRequestsForGiver(giverId) {
 export async function getRequestsForRequester(requesterId) {
   const pool = getDatabasePool();
   await requireUser(pool, requesterId, "Requester");
+  await markOverdueRequests(pool);
 
   const [requests] = await pool.execute(
     `${requestSelect}
@@ -156,6 +171,7 @@ export async function getRequestsForRequester(requesterId) {
 
 export async function getFeedbackRequestById(requestId) {
   const pool = getDatabasePool();
+  await markOverdueRequests(pool);
   const [[request]] = await pool.execute(
     `${requestSelect}
      WHERE request.id = ?`,
@@ -206,13 +222,13 @@ const lifecycleActions = {
   decline: {
     actorColumn: "giver_id",
     actorLabel: "selected feedback giver",
-    from: "requested",
+    from: ["requested", "overdue"],
     to: "declined",
   },
   cancel: {
     actorColumn: "requester_id",
     actorLabel: "requester",
-    from: "requested",
+    from: ["requested", "overdue"],
     to: "cancelled",
   },
   acknowledge: {
@@ -229,11 +245,13 @@ const lifecycleActions = {
   },
 };
 
-/**
- * Changes a request only when the correct person performs the next valid action.
- * Authentication will later provide actorId; for now the UI sends the selected user ID.
- */
-export async function performFeedbackRequestAction(requestId, actorId, action, acknowledgementComment = null) {
+export async function performFeedbackRequestAction(
+  requestId,
+  actorId,
+  action,
+  acknowledgementComment = null,
+  declineReason = null,
+) {
   const rule = lifecycleActions[action];
 
   if (!rule) {
@@ -265,10 +283,11 @@ export async function performFeedbackRequestAction(requestId, actorId, action, a
       throw new ServiceError(403, `Only the ${rule.actorLabel} can ${action} this request`);
     }
 
-    if (request.status !== rule.from) {
+    const allowedCurrentStatuses = Array.isArray(rule.from) ? rule.from : [rule.from];
+    if (!allowedCurrentStatuses.includes(request.status)) {
       throw new ServiceError(
         409,
-        `This request is ${request.status}; it can only be ${action}d while it is ${rule.from}`,
+        `This request is ${request.status}; it can only be ${action}d while it is ${allowedCurrentStatuses.join(" or ")}`,
       );
     }
 
@@ -278,6 +297,11 @@ export async function performFeedbackRequestAction(requestId, actorId, action, a
          SET status = ?, acknowledgement_comment = ?, acknowledged_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [rule.to, acknowledgementComment, requestId],
+      );
+    } else if (action === "decline") {
+      await connection.execute(
+        "UPDATE feedback_requests SET status = ?, decline_reason = ? WHERE id = ?",
+        [rule.to, declineReason, requestId],
       );
     } else {
       await connection.execute(

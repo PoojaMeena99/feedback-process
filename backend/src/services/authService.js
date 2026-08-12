@@ -3,6 +3,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 
 import { getDatabasePool } from "../db/connection.js";
+import { sendPasswordResetEmail } from "../integrations/email.js";
 import { ServiceError } from "./serviceError.js";
 
 const tokenLifetime = "7d";
@@ -193,7 +194,7 @@ export async function createPasswordResetRequest({ email }) {
 
   try {
     const [[user]] = await connection.execute(
-      "SELECT id, email FROM users WHERE email = ? AND is_active = TRUE",
+      "SELECT id, name, email FROM users WHERE email = ? AND is_active = TRUE",
       [normalizedEmail],
     );
 
@@ -219,9 +220,21 @@ export async function createPasswordResetRequest({ email }) {
     const frontendOrigin = (process.env.FRONTEND_ORIGIN || "http://localhost:3000")
       .split(",")[0]
       .trim();
-    console.log(
-      `Password reset link for ${user.email}: ${frontendOrigin}/reset-password?token=${token}`,
-    );
+    const resetUrl = `${frontendOrigin}/reset-password?token=${token}`;
+
+    try {
+      await sendPasswordResetEmail({
+        email: user.email,
+        name: user.name,
+        resetUrl,
+      });
+    } catch (error) {
+      await connection.execute(
+        "DELETE FROM password_reset_tokens WHERE token_hash = ?",
+        [tokenHash],
+      );
+      throw error;
+    }
   } catch (error) {
     await connection.rollback();
     throw error;

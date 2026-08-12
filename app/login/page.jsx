@@ -83,6 +83,12 @@ export default function LoginPage() {
               value={form.password}
             />
 
+            <div className="-mt-2 text-right">
+              <Link className="text-sm font-semibold text-[#36429a] hover:underline" href="/forgot-password">
+                Forgot password?
+              </Link>
+            </div>
+
             {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
             <button

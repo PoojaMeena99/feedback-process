@@ -218,6 +218,34 @@ export async function updateFeedbackRequestStatus(requestId, status) {
   return getFeedbackRequestById(requestId);
 }
 
+export async function updateFeedbackRequestDueDate(requestId, requesterId, dueDate) {
+  const normalizedDueDate = normalizeDueDate(dueDate);
+  const pool = getDatabasePool();
+  const [[request]] = await pool.execute(
+    "SELECT requester_id AS requesterId, status FROM feedback_requests WHERE id = ?",
+    [requestId],
+  );
+
+  if (!request) {
+    throw new ServiceError(404, "Feedback request not found");
+  }
+
+  if (request.requesterId !== requesterId) {
+    throw new ServiceError(403, "Only the requester can change the due date");
+  }
+
+  if (!["requested", "overdue"].includes(request.status)) {
+    throw new ServiceError(409, "Due date can only be changed before feedback is submitted");
+  }
+
+  await pool.execute(
+    "UPDATE feedback_requests SET due_date = ?, status = 'requested' WHERE id = ?",
+    [normalizedDueDate, requestId],
+  );
+
+  return getFeedbackRequestById(requestId);
+}
+
 const lifecycleActions = {
   decline: {
     actorColumn: "giver_id",

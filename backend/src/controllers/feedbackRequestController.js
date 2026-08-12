@@ -5,6 +5,7 @@ import {
   getRequestsForGiver as getRequestsForGiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
   performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
+  updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
 
@@ -134,6 +135,26 @@ export async function submitFeedbackAnswers(req, res) {
       message: "Feedback submitted",
       feedbackRequest,
     });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function updateFeedbackRequestDueDate(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  const { dueDate } = req.body;
+
+  if (!requestId) {
+    return res.status(400).json({ message: "Request ID must be a positive integer" });
+  }
+
+  try {
+    const feedbackRequest = await updateFeedbackRequestDueDateInDatabase(
+      requestId,
+      req.auth.user.id,
+      dueDate,
+    );
+    return res.status(200).json({ message: "Due date updated", feedbackRequest });
   } catch (error) {
     return respondWithError(res, error);
   }

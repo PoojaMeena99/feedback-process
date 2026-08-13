@@ -42,6 +42,7 @@ export default function Home() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
+  const [followUpRequest, setFollowUpRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -180,6 +181,32 @@ export default function Home() {
     }
   }
 
+  async function createFollowUp(requestId, payload) {
+    try {
+      await api(`/feedback-requests/${requestId}/follow-ups`, { method: "POST", body: JSON.stringify(payload) });
+      await openRequest(requestId);
+      await loadRequests(currentUserId);
+      setError("");
+      return true;
+    } catch (followUpError) {
+      setError(followUpError.message);
+      return false;
+    }
+  }
+
+  async function updateFollowUp(requestId, followUpId, payload) {
+    try {
+      await api(`/feedback-requests/${requestId}/follow-ups/${followUpId}`, { method: "PATCH", body: JSON.stringify(payload) });
+      await openRequest(requestId);
+      await loadRequests(currentUserId);
+      setError("");
+      return true;
+    } catch (followUpError) {
+      setError(followUpError.message);
+      return false;
+    }
+  }
+
   function handleRequestAction(request, action) {
     if (action === "decline") {
       setDeclineRequest(request);
@@ -277,6 +304,7 @@ export default function Home() {
                     <th className="px-6 py-4">Requester</th>
                     <th className="px-4 py-4">Feedback Giver</th>
                     <th className="px-4 py-4">Type</th>
+                    <th className="px-4 py-4">Purpose</th>
                     <th className="px-4 py-4">Due Date</th>
                     <th className="px-4 py-4">Status</th>
                     <th className="px-4 py-4">Action</th>
@@ -301,6 +329,7 @@ export default function Home() {
                         </div>
                       </td>
                       <td className="px-4 py-5 text-base font-medium">{row.type}</td>
+                      <td className="px-4 py-5 text-base text-slate-700">{row.purpose}</td>
                       <td className="px-4 py-5">
                         <p className="font-semibold">{row.dueDate}</p>
                       </td>
@@ -335,7 +364,7 @@ export default function Home() {
                     </tr>
                   )) : (
                     <tr>
-                      <td className="px-6 py-12 text-center text-base text-muted" colSpan={6}>
+                      <td className="px-6 py-12 text-center text-base text-muted" colSpan={7}>
                         No feedback requests yet. Create a request from the right panel.
                       </td>
                     </tr>
@@ -375,6 +404,8 @@ export default function Home() {
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
           onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
+          onCreateFollowUp={() => setFollowUpRequest(selectedRequest)}
+          onUpdateFollowUp={updateFollowUp}
         />
       ) : null}
 
@@ -403,6 +434,18 @@ export default function Home() {
             const wasUpdated = await updateDueDate(dueDateRequest.id, dueDate);
             if (wasUpdated) setDueDateRequest(null);
             return wasUpdated;
+          }}
+        />
+      ) : null}
+
+      {followUpRequest ? (
+        <FollowUpModal
+          request={followUpRequest}
+          onClose={() => setFollowUpRequest(null)}
+          onSubmit={async (payload) => {
+            const wasCreated = await createFollowUp(followUpRequest.id, payload);
+            if (wasCreated) setFollowUpRequest(null);
+            return wasCreated;
           }}
         />
       ) : null}
@@ -515,6 +558,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     "Please share feedback for my learning progress.",
   );
   const [dueDate, setDueDate] = useState("");
+  const [purpose, setPurpose] = useState("growth");
   const [notice, setNotice] = useState(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -537,7 +581,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       setNotice("Due date cannot be in the past.");
       return;
     }
-    const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate });
+    const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate, purpose });
     if (result.ok) {
       onClose();
       return;
@@ -573,6 +617,17 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
                   {template.name}
                 </option>
               ))}
+            </select>
+          </SelectShell>
+        </Field>
+
+        <Field label="Feedback purpose">
+          <SelectShell>
+            <select className="w-full bg-transparent outline-none" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+              <option value="growth">Development and growth</option>
+              <option value="project_improvement">Project improvement</option>
+              <option value="one_on_one">One-on-one discussion</option>
+              <option value="appraisal">Official performance/appraisal record</option>
             </select>
           </SelectShell>
         </Field>
@@ -781,10 +836,13 @@ function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge }) {
+function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp }) {
   const template = request.template;
-  const canSubmit = currentUserId === request.giverId && ["requested", "overdue"].includes(request.status);
-  const canAcknowledge = currentUserId === request.requesterId && request.status === "submitted";
+  const isRequester = Number(currentUserId) === Number(request.requesterId);
+  const isGiver = Number(currentUserId) === Number(request.giverId);
+  const canSubmit = isGiver && ["requested", "overdue"].includes(request.status);
+  const canAcknowledge = isRequester && request.status === "submitted";
+  const canCreateFollowUp = isRequester && request.status === "acknowledged";
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
 
@@ -815,6 +873,10 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
         </div>
 
         <form className="grid gap-5 p-6 sm:p-8" onSubmit={submit}>
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm">
+            <p className="font-semibold text-slate-800">Feedback purpose</p>
+            <p className="mt-1 text-slate-600">{formatPurpose(request.purpose)}</p>
+          </div>
           {template.questions.map((question, index) => (
             <Field key={question.id} label={<span className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span><span>{question.questionText}</span></span>}>
               <textarea
@@ -850,6 +912,16 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
               <p className="mt-1 whitespace-pre-wrap text-red-800">{request.declineReason}</p>
             </div>
           ) : null}
+          {!canSubmit && !canAcknowledge && request.followUps?.length ? (
+            <section className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+              <p className="font-semibold text-slate-900">Follow-up actions</p>
+              <div className="mt-3 grid gap-3">
+                {request.followUps.map((followUp) => (
+                  <FollowUpCard key={followUp.id} followUp={followUp} request={request} currentUserId={currentUserId} onUpdate={onUpdateFollowUp} />
+                ))}
+              </div>
+            </section>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
             <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
             <div className="flex flex-wrap gap-2">
@@ -868,6 +940,11 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
                 Acknowledge feedback
               </button>
             ) : null}
+            {canCreateFollowUp ? (
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-amber-500 px-5 font-semibold text-white transition hover:bg-amber-600" type="button" onClick={onCreateFollowUp}>
+                <Plus size={16} /> Create follow-up
+              </button>
+            ) : null}
             </div>
           </div>
         </form>
@@ -876,9 +953,58 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   );
 }
 
+function FollowUpModal({ request, onClose, onSubmit }) {
+  const [details, setDetails] = useState("");
+  const [ownerId, setOwnerId] = useState(String(request.requesterId));
+  const [dueDate, setDueDate] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const people = [{ id: request.requesterId, name: request.requesterName }, { id: request.giverId, name: request.giverName }];
+  async function submit(event) {
+    event.preventDefault();
+    if (details.trim().length < 3) return setNotice("Please add at least 3 characters.");
+    setIsSaving(true); setNotice("");
+    const saved = await onSubmit({ details, ownerId: Number(ownerId), dueDate });
+    if (!saved) setIsSaving(false);
+  }
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <section className="w-full max-w-lg rounded-3xl bg-white p-7 shadow-[0_28px_90px_rgba(15,23,42,0.35)] sm:p-8">
+        <p className="text-sm font-bold uppercase tracking-[0.14em] text-amber-600">Optional follow-up</p>
+        <h2 className="mt-2 text-2xl font-extrabold text-slate-950">Create follow-up action</h2>
+        <form className="mt-6 grid gap-4" onSubmit={submit}>
+          <Field label="Action or discussion details"><textarea className={`${fieldClass} min-h-28`} value={details} maxLength={500} onChange={(event) => setDetails(event.target.value)} placeholder="Example: Discuss the feedback in next week's meeting." required /></Field>
+          <Field label="Owner"><select className={fieldClass} value={ownerId} onChange={(event) => setOwnerId(event.target.value)}>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
+          <Field label="Due date (optional)"><input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></Field>
+          {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{notice}</p> : null}
+          <div className="flex justify-end gap-3"><button className={secondaryButton} type="button" onClick={onClose}>Cancel</button><button className={primaryButton} disabled={isSaving} type="submit">{isSaving ? "Creating…" : "Create follow-up"}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function FollowUpCard({ followUp, request, currentUserId, onUpdate }) {
+  const [status, setStatus] = useState(followUp.status);
+  const [progressNote, setProgressNote] = useState(followUp.progressNote || "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const canUpdate = [followUp.ownerId, request.requesterId].some((userId) => Number(userId) === Number(currentUserId)) && followUp.status !== "completed";
+  async function save() {
+    setIsSaving(true);
+    setNotice("");
+    const wasSaved = await onUpdate(request.id, followUp.id, { status, progressNote });
+    setNotice(wasSaved ? "Follow-up saved." : "Follow-up could not be saved. Please try again.");
+    setIsSaving(false);
+  }
+  const overdueLabel = followUp.overdueDays === 1 ? "Overdue by 1 day" : `Overdue by ${followUp.overdueDays} days`;
+  return <div className={`rounded-lg border bg-white p-3 text-sm ${followUp.isOverdue ? "border-orange-300" : "border-amber-100"}`}><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-slate-900">{followUp.details}</p>{followUp.isOverdue ? <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700">{overdueLabel}</span> : null}</div><p className="mt-1 text-muted">Owner: {followUp.ownerName} · Due: {formatDueDate(followUp.dueDate)}</p>{canUpdate ? <div className="mt-3 grid gap-2 sm:grid-cols-[150px_1fr_auto]"><select className="field-control py-2" value={status} onChange={(event) => setStatus(event.target.value)}><option value="open">Open</option><option value="in_progress">In progress</option><option value="completed">Completed</option></select><input className="field-control py-2" value={progressNote} maxLength={500} onChange={(event) => setProgressNote(event.target.value)} placeholder="Progress note (optional)"/><button className={secondaryButton} type="button" disabled={isSaving} onClick={() => void save()}>{isSaving ? "Saving…" : "Save"}</button></div> : <p className="mt-2 font-semibold text-amber-700">{followUp.status.replace("_", " ")}</p>}{notice ? <p className={`mt-2 font-medium ${notice === "Follow-up saved." ? "text-emerald-700" : "text-red-700"}`}>{notice}</p> : null}{!canUpdate && followUp.progressNote ? <p className="mt-2 text-muted">Note: {followUp.progressNote}</p> : null}</div>;
+}
+
 function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate }) {
-  const isGiver = row.giverId === currentUserId;
-  const isRequester = row.requesterId === currentUserId;
+  const isGiver = Number(row.giverId) === Number(currentUserId);
+  const isRequester = Number(row.requesterId) === Number(currentUserId);
   const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
   const destructiveButtonClass = "rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50";
 
@@ -913,7 +1039,7 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
-        <button className={buttonClass} type="button" onClick={() => onAction("close")}>Close</button>
+        {row.hasOpenFollowUps ? <span className="self-center text-xs font-medium text-amber-700">Complete follow-up first</span> : <button className={buttonClass} type="button" onClick={() => onAction("close")}>Close</button>}
       </div>
     );
   }
@@ -954,11 +1080,24 @@ function toTableRow(request) {
     giverName: request.giverName,
     giverInitials: initialsForName(request.giverName),
     type: request.templateName,
+    purpose: formatPurpose(request.purpose),
     dueDate: formatDueDate(request.dueDate),
     rawDueDate: request.dueDate,
+    hasOpenFollowUps: Boolean(request.hasOpenFollowUps),
     status: request.status,
     declineReason: request.declineReason,
   };
+}
+
+function formatPurpose(purpose) {
+  const labels = {
+    growth: "Development and growth",
+    project_improvement: "Project improvement",
+    one_on_one: "One-on-one discussion",
+    appraisal: "Official performance/appraisal record",
+  };
+
+  return labels[purpose] || "Not selected";
 }
 
 function initialsForName(name = "?") {

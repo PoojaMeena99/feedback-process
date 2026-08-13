@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   template_id INT NOT NULL,
   message TEXT,
   due_date DATE NULL,
+  purpose VARCHAR(40) NULL,
   status VARCHAR(30) DEFAULT 'requested',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -121,6 +122,21 @@ SET @add_due_date_column = (
 PREPARE add_due_date_column_statement FROM @add_due_date_column;
 EXECUTE add_due_date_column_statement;
 DEALLOCATE PREPARE add_due_date_column_statement;
+
+SET @add_purpose_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN purpose VARCHAR(40) NULL AFTER due_date',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'purpose'
+);
+PREPARE add_purpose_column_statement FROM @add_purpose_column;
+EXECUTE add_purpose_column_statement;
+DEALLOCATE PREPARE add_purpose_column_statement;
 
 SET @add_acknowledgement_comment_column = (
   SELECT IF(
@@ -178,6 +194,21 @@ CREATE TABLE IF NOT EXISTS feedback_answers (
   FOREIGN KEY (question_id) REFERENCES template_questions(id)
 );
 
+CREATE TABLE IF NOT EXISTS feedback_follow_ups (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  details TEXT NOT NULL,
+  owner_id INT NOT NULL,
+  due_date DATE NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'open',
+  progress_note TEXT NULL,
+  completed_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (owner_id) REFERENCES users(id)
+);
+
 CREATE OR REPLACE VIEW feedback_request_details AS
 SELECT
   request.id,
@@ -186,6 +217,7 @@ SELECT
   template.name AS feedback_type,
   request.message,
   request.due_date,
+  request.purpose,
   request.status,
   request.created_at
 FROM feedback_requests AS request

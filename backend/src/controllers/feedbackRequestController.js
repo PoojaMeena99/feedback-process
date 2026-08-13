@@ -5,6 +5,8 @@ import {
   getRequestsForGiver as getRequestsForGiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
   performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
+  createFollowUp as createFollowUpInDatabase,
+  updateFollowUp as updateFollowUpInDatabase,
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
@@ -20,7 +22,7 @@ export async function createFeedbackRequest(req, res) {
   const requesterId = req.auth.user.id;
   const giverId = parsePositiveInteger(req.body.giverId);
   const templateId = parsePositiveInteger(req.body.templateId);
-  const { message, dueDate } = req.body;
+  const { message, dueDate, purpose } = req.body;
 
   if (!giverId || !templateId) {
     return res.status(400).json({
@@ -35,6 +37,7 @@ export async function createFeedbackRequest(req, res) {
       templateId,
       message,
       dueDate,
+      purpose,
     });
 
     return res.status(201).json({
@@ -155,6 +158,31 @@ export async function updateFeedbackRequestDueDate(req, res) {
       dueDate,
     );
     return res.status(200).json({ message: "Due date updated", feedbackRequest });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function createFollowUp(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  const ownerId = parsePositiveInteger(req.body.ownerId);
+  const { details, dueDate } = req.body;
+  if (!requestId || !ownerId) return res.status(400).json({ message: "Request ID and owner ID must be positive integers" });
+  try {
+    const followUp = await createFollowUpInDatabase({ requestId, actorId: req.auth.user.id, details, ownerId, dueDate });
+    return res.status(201).json({ message: "Follow-up created", followUp });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function updateFollowUp(req, res) {
+  const followUpId = parsePositiveInteger(req.params.followUpId);
+  const { status, progressNote } = req.body;
+  if (!followUpId) return res.status(400).json({ message: "Follow-up ID must be a positive integer" });
+  try {
+    const followUp = await updateFollowUpInDatabase({ followUpId, actorId: req.auth.user.id, status, progressNote });
+    return res.status(200).json({ message: "Follow-up updated", followUp });
   } catch (error) {
     return respondWithError(res, error);
   }

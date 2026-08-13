@@ -2,12 +2,14 @@ import { Router } from "express";
 
 import {
   createFeedbackRequest,
+  createFollowUp,
   getFeedbackRequestById,
   getRequestsForGiver,
   getRequestsForRequester,
   performFeedbackRequestAction,
   submitFeedbackAnswers,
   updateFeedbackRequestDueDate,
+  updateFollowUp,
 } from "../controllers/feedbackRequestController.js";
 import { requireAuth } from "../controllers/authController.js";
 
@@ -21,6 +23,8 @@ router.get("/giver/:userId", getRequestsForGiver);
 router.get("/requester/:userId", getRequestsForRequester);
 router.get("/:id", getFeedbackRequestById);
 router.patch("/:id/due-date", updateFeedbackRequestDueDate);
+router.post("/:id/follow-ups", createFollowUp);
+router.patch("/:id/follow-ups/:followUpId", updateFollowUp);
 router.post("/:id/answers", submitFeedbackAnswers);
 router.post("/:id/actions", performFeedbackRequestAction);
 

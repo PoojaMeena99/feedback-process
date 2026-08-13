@@ -14,11 +14,16 @@ const requestSelect = `
     request.template_id AS templateId,
     template.name AS templateName,
     request.message,
+    request.purpose,
     request.due_date AS dueDate,
     request.status,
     request.decline_reason AS declineReason,
     request.acknowledgement_comment AS acknowledgementComment,
     request.acknowledged_at AS acknowledgedAt,
+    EXISTS(
+      SELECT 1 FROM feedback_follow_ups AS follow_up
+      WHERE follow_up.request_id = request.id AND follow_up.status != 'completed'
+    ) AS hasOpenFollowUps,
     request.created_at AS createdAt
   FROM feedback_requests AS request
   JOIN users AS requester ON requester.id = request.requester_id
@@ -66,6 +71,7 @@ export async function createFeedbackRequest({
   templateId,
   message,
   dueDate,
+  purpose,
 }) {
   if (requesterId === giverId) {
     throw new ServiceError(400, "You cannot request feedback from yourself");
@@ -73,6 +79,7 @@ export async function createFeedbackRequest({
 
   const pool = getDatabasePool();
   const normalizedDueDate = normalizeDueDate(dueDate);
+  const normalizedPurpose = normalizePurpose(purpose);
   await requireUser(pool, requesterId, "Requester");
   await requireUser(pool, giverId, "Feedback giver");
   await requireTemplate(pool, templateId);
@@ -97,9 +104,9 @@ export async function createFeedbackRequest({
 
   const [result] = await pool.execute(
     `INSERT INTO feedback_requests
-       (requester_id, giver_id, template_id, message, due_date, status)
-     VALUES (?, ?, ?, ?, ?, 'requested')`,
-    [requesterId, giverId, templateId, message || null, normalizedDueDate],
+       (requester_id, giver_id, template_id, message, due_date, purpose, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'requested')`,
+    [requesterId, giverId, templateId, message || null, normalizedDueDate, normalizedPurpose],
   );
 
   const feedbackRequest = await getFeedbackRequestById(result.insertId);
@@ -115,6 +122,18 @@ export async function createFeedbackRequest({
       notification: { sent: false, reason: "Mattermost notification failed" },
     };
   }
+}
+
+function normalizePurpose(purpose) {
+  if (purpose === undefined || purpose === null || purpose === "") {
+    return null;
+  }
+
+  const allowedPurposes = ["growth", "project_improvement", "one_on_one", "appraisal"];
+  if (!allowedPurposes.includes(purpose)) {
+    throw new ServiceError(400, "purpose must be growth, project_improvement, one_on_one, or appraisal");
+  }
+  return purpose;
 }
 
 function normalizeDueDate(dueDate) {
@@ -196,10 +215,111 @@ export async function getFeedbackRequestById(requestId) {
     [requestId],
   );
 
+  const [followUps] = await pool.execute(
+    `SELECT
+       follow_up.id,
+       follow_up.details,
+       follow_up.owner_id AS ownerId,
+       owner.name AS ownerName,
+       follow_up.due_date AS dueDate,
+       follow_up.status,
+       (follow_up.status != 'completed' AND follow_up.due_date IS NOT NULL AND follow_up.due_date < CURRENT_DATE()) AS isOverdue,
+       CASE
+         WHEN follow_up.status != 'completed' AND follow_up.due_date IS NOT NULL AND follow_up.due_date < CURRENT_DATE()
+         THEN DATEDIFF(CURRENT_DATE(), follow_up.due_date)
+         ELSE 0
+       END AS overdueDays,
+       follow_up.progress_note AS progressNote,
+       follow_up.completed_at AS completedAt,
+       follow_up.created_at AS createdAt
+     FROM feedback_follow_ups AS follow_up
+     JOIN users AS owner ON owner.id = follow_up.owner_id
+     WHERE follow_up.request_id = ?
+     ORDER BY follow_up.created_at DESC, follow_up.id DESC`,
+    [requestId],
+  );
+
   return {
     ...request,
     answers,
+    followUps,
   };
+}
+
+export async function createFollowUp({ requestId, actorId, details, ownerId, dueDate }) {
+  const normalizedDueDate = normalizeDueDate(dueDate);
+  const pool = getDatabasePool();
+  const [[request]] = await pool.execute(
+    "SELECT requester_id AS requesterId, giver_id AS giverId, status FROM feedback_requests WHERE id = ?",
+    [requestId],
+  );
+  if (!request) throw new ServiceError(404, "Feedback request not found");
+  if (actorId !== request.requesterId) throw new ServiceError(403, "Only the requester can create a follow-up");
+  if (request.status !== "acknowledged") throw new ServiceError(409, "Follow-ups can be created after feedback is acknowledged");
+  if (!details?.trim()) throw new ServiceError(400, "Follow-up details are required");
+  if (details.trim().length > 500) throw new ServiceError(400, "Follow-up details must be 500 characters or less");
+  await requireUser(pool, ownerId, "Follow-up owner");
+  if (![request.requesterId, request.giverId].includes(ownerId)) {
+    throw new ServiceError(400, "Follow-up owner must be part of this feedback request");
+  }
+  const [result] = await pool.execute(
+    `INSERT INTO feedback_follow_ups (request_id, details, owner_id, due_date)
+     VALUES (?, ?, ?, ?)`,
+    [requestId, details.trim(), ownerId, normalizedDueDate],
+  );
+  return getFollowUpById(result.insertId);
+}
+
+export async function updateFollowUp({ followUpId, actorId, status, progressNote }) {
+  const pool = getDatabasePool();
+  const [[followUp]] = await pool.execute(
+    `SELECT follow_up.id, follow_up.owner_id AS ownerId, follow_up.request_id AS requestId,
+            request.requester_id AS requesterId
+     FROM feedback_follow_ups AS follow_up
+     JOIN feedback_requests AS request ON request.id = follow_up.request_id
+     WHERE follow_up.id = ?`,
+    [followUpId],
+  );
+  if (!followUp) throw new ServiceError(404, "Follow-up not found");
+  if (![followUp.ownerId, followUp.requesterId].includes(actorId)) {
+    throw new ServiceError(403, "Only the follow-up owner or requester can update it");
+  }
+  if (!["open", "in_progress", "completed"].includes(status)) {
+    throw new ServiceError(400, "Follow-up status must be open, in_progress, or completed");
+  }
+  if (progressNote !== undefined && typeof progressNote !== "string") {
+    throw new ServiceError(400, "Progress note must be text");
+  }
+  if (progressNote?.trim().length > 500) throw new ServiceError(400, "Progress note must be 500 characters or less");
+  await pool.execute(
+    `UPDATE feedback_follow_ups
+     SET status = ?, progress_note = ?, completed_at = CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END
+     WHERE id = ?`,
+    [status, progressNote?.trim() || null, status, followUpId],
+  );
+  return getFollowUpById(followUpId);
+}
+
+async function getFollowUpById(followUpId) {
+  const pool = getDatabasePool();
+  const [[followUp]] = await pool.execute(
+    `SELECT follow_up.id, follow_up.request_id AS requestId, follow_up.details,
+       follow_up.owner_id AS ownerId, owner.name AS ownerName, follow_up.due_date AS dueDate,
+       follow_up.status,
+       (follow_up.status != 'completed' AND follow_up.due_date IS NOT NULL AND follow_up.due_date < CURRENT_DATE()) AS isOverdue,
+       CASE
+         WHEN follow_up.status != 'completed' AND follow_up.due_date IS NOT NULL AND follow_up.due_date < CURRENT_DATE()
+         THEN DATEDIFF(CURRENT_DATE(), follow_up.due_date)
+         ELSE 0
+       END AS overdueDays,
+       follow_up.progress_note AS progressNote,
+       follow_up.completed_at AS completedAt, follow_up.created_at AS createdAt
+     FROM feedback_follow_ups AS follow_up
+     JOIN users AS owner ON owner.id = follow_up.owner_id
+     WHERE follow_up.id = ?`,
+    [followUpId],
+  );
+  return followUp;
 }
 
 export async function updateFeedbackRequestStatus(requestId, status) {
@@ -317,6 +437,18 @@ export async function performFeedbackRequestAction(
         409,
         `This request is ${request.status}; it can only be ${action}d while it is ${allowedCurrentStatuses.join(" or ")}`,
       );
+    }
+
+    if (action === "close") {
+      const [[openFollowUp]] = await connection.execute(
+        `SELECT id FROM feedback_follow_ups
+         WHERE request_id = ? AND status != 'completed'
+         LIMIT 1`,
+        [requestId],
+      );
+      if (openFollowUp) {
+        throw new ServiceError(409, "Complete the open follow-up action before closing this request");
+      }
     }
 
     if (action === "acknowledge") {

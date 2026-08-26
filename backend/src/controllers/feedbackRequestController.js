@@ -4,6 +4,7 @@ import {
   getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
   getRequestsForGiver as getRequestsForGiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
+  getRequestsVisibleTo as getRequestsVisibleToFromDatabase,
   performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
   createFollowUp as createFollowUpInDatabase,
   updateFollowUp as updateFollowUpInDatabase,
@@ -22,7 +23,7 @@ export async function createFeedbackRequest(req, res) {
   const requesterId = req.auth.user.id;
   const giverId = parsePositiveInteger(req.body.giverId);
   const templateId = parsePositiveInteger(req.body.templateId);
-  const { message, dueDate, purpose } = req.body;
+  const { message, dueDate, purpose, visibility, viewerIds } = req.body;
 
   if (!giverId || !templateId) {
     return res.status(400).json({
@@ -38,6 +39,8 @@ export async function createFeedbackRequest(req, res) {
       message,
       dueDate,
       purpose,
+      visibility,
+      viewerIds,
     });
 
     return res.status(201).json({
@@ -92,6 +95,18 @@ export async function getRequestsForRequester(req, res) {
   }
 }
 
+export async function getRequestsVisibleTo(req, res) {
+  const viewerId = parsePositiveInteger(req.params.userId);
+  if (!viewerId) return res.status(400).json({ message: "User ID must be a positive integer" });
+  if (viewerId !== req.auth.user.id) return res.status(403).json({ message: "You can only view requests shared with you" });
+  try {
+    const feedbackRequests = await getRequestsVisibleToFromDatabase(viewerId);
+    return res.status(200).json({ feedbackRequests });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
 export async function getFeedbackRequestById(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
 
@@ -105,10 +120,8 @@ export async function getFeedbackRequestById(req, res) {
     const feedbackRequest =
       await getFeedbackRequestByIdFromDatabase(requestId);
 
-    if (
-      feedbackRequest.requesterId !== req.auth.user.id
-      && feedbackRequest.giverId !== req.auth.user.id
-    ) {
+    const hasViewerAccess = feedbackRequest.viewers.some((viewer) => viewer.userId === req.auth.user.id);
+    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && !hasViewerAccess) {
       return res.status(403).json({ message: "You do not have access to this feedback request" });
     }
     return res.status(200).json({ feedbackRequest });

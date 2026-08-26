@@ -15,6 +15,7 @@ const requestSelect = `
     template.name AS templateName,
     request.message,
     request.purpose,
+    request.visibility,
     request.due_date AS dueDate,
     request.status,
     request.decline_reason AS declineReason,
@@ -24,7 +25,8 @@ const requestSelect = `
       SELECT 1 FROM feedback_follow_ups AS follow_up
       WHERE follow_up.request_id = request.id AND follow_up.status != 'completed'
     ) AS hasOpenFollowUps,
-    request.created_at AS createdAt
+    request.created_at AS createdAt,
+    request.updated_at AS updatedAt
   FROM feedback_requests AS request
   JOIN users AS requester ON requester.id = request.requester_id
   JOIN users AS giver ON giver.id = request.giver_id
@@ -72,6 +74,8 @@ export async function createFeedbackRequest({
   message,
   dueDate,
   purpose,
+  visibility,
+  viewerIds,
 }) {
   if (requesterId === giverId) {
     throw new ServiceError(400, "You cannot request feedback from yourself");
@@ -80,8 +84,13 @@ export async function createFeedbackRequest({
   const pool = getDatabasePool();
   const normalizedDueDate = normalizeDueDate(dueDate);
   const normalizedPurpose = normalizePurpose(purpose);
+  const normalizedVisibility = normalizeVisibility(visibility);
+  const normalizedViewerIds = normalizeViewerIds(viewerIds, requesterId, giverId, normalizedVisibility);
   await requireUser(pool, requesterId, "Requester");
   await requireUser(pool, giverId, "Feedback giver");
+  for (const viewerId of normalizedViewerIds) {
+    await requireUser(pool, viewerId, "Selected viewer");
+  }
   await requireTemplate(pool, templateId);
 
   const [[duplicateRequest]] = await pool.execute(
@@ -102,12 +111,29 @@ export async function createFeedbackRequest({
     );
   }
 
-  const [result] = await pool.execute(
-    `INSERT INTO feedback_requests
-       (requester_id, giver_id, template_id, message, due_date, purpose, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'requested')`,
-    [requesterId, giverId, templateId, message || null, normalizedDueDate, normalizedPurpose],
-  );
+  const connection = await pool.getConnection();
+  let result;
+  try {
+    await connection.beginTransaction();
+    [result] = await connection.execute(
+      `INSERT INTO feedback_requests
+         (requester_id, giver_id, template_id, message, due_date, purpose, visibility, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'requested')`,
+      [requesterId, giverId, templateId, message || null, normalizedDueDate, normalizedPurpose, normalizedVisibility],
+    );
+    for (const viewerId of normalizedViewerIds) {
+      await connection.execute(
+        "INSERT INTO feedback_request_viewers (request_id, user_id) VALUES (?, ?)",
+        [result.insertId, viewerId],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 
   const feedbackRequest = await getFeedbackRequestById(result.insertId);
 
@@ -122,6 +148,35 @@ export async function createFeedbackRequest({
       notification: { sent: false, reason: "Mattermost notification failed" },
     };
   }
+}
+
+function normalizeVisibility(visibility) {
+  const value = visibility || "private";
+  if (!["private", "mentor_lead", "selected_group"].includes(value)) {
+    throw new ServiceError(400, "visibility must be private, mentor_lead, or selected_group");
+  }
+  return value;
+}
+
+function normalizeViewerIds(viewerIds, requesterId, giverId, visibility) {
+  const ids = viewerIds === undefined ? [] : viewerIds;
+  if (!Array.isArray(ids) || ids.some((id) => !Number.isInteger(Number(id)) || Number(id) <= 0)) {
+    throw new ServiceError(400, "viewerIds must contain positive user IDs");
+  }
+  const uniqueIds = [...new Set(ids.map(Number))];
+  if (uniqueIds.some((id) => id === requesterId || id === giverId)) {
+    throw new ServiceError(400, "Requester and feedback giver already have access");
+  }
+  if (visibility === "private" && uniqueIds.length) {
+    throw new ServiceError(400, "Private feedback cannot have extra viewers");
+  }
+  if (visibility === "mentor_lead" && uniqueIds.length !== 1) {
+    throw new ServiceError(400, "Select one mentor or lead viewer");
+  }
+  if (visibility === "selected_group" && uniqueIds.length === 0) {
+    throw new ServiceError(400, "Select at least one group viewer");
+  }
+  return uniqueIds;
 }
 
 function normalizePurpose(purpose) {
@@ -188,6 +243,20 @@ export async function getRequestsForRequester(requesterId) {
   return requests;
 }
 
+export async function getRequestsVisibleTo(viewerId) {
+  const pool = getDatabasePool();
+  await requireUser(pool, viewerId, "Viewer");
+  await markOverdueRequests(pool);
+  const [requests] = await pool.execute(
+    `${requestSelect}
+     JOIN feedback_request_viewers AS viewer ON viewer.request_id = request.id
+     WHERE viewer.user_id = ?
+     ORDER BY request.created_at DESC, request.id DESC`,
+    [viewerId],
+  );
+  return requests;
+}
+
 export async function getFeedbackRequestById(requestId) {
   const pool = getDatabasePool();
   await markOverdueRequests(pool);
@@ -200,6 +269,15 @@ export async function getFeedbackRequestById(requestId) {
   if (!request) {
     throw new ServiceError(404, "Feedback request not found");
   }
+
+  const [viewers] = await pool.execute(
+    `SELECT viewer.user_id AS userId, user.name, user.email
+     FROM feedback_request_viewers AS viewer
+     JOIN users AS user ON user.id = viewer.user_id
+     WHERE viewer.request_id = ?
+     ORDER BY user.name`,
+    [requestId],
+  );
 
   const [answers] = await pool.execute(
     `SELECT
@@ -231,7 +309,8 @@ export async function getFeedbackRequestById(requestId) {
        END AS overdueDays,
        follow_up.progress_note AS progressNote,
        follow_up.completed_at AS completedAt,
-       follow_up.created_at AS createdAt
+       follow_up.created_at AS createdAt,
+       follow_up.updated_at AS updatedAt
      FROM feedback_follow_ups AS follow_up
      JOIN users AS owner ON owner.id = follow_up.owner_id
      WHERE follow_up.request_id = ?
@@ -241,6 +320,7 @@ export async function getFeedbackRequestById(requestId) {
 
   return {
     ...request,
+    viewers,
     answers,
     followUps,
   };

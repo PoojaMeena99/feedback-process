@@ -6,6 +6,7 @@ import {
   getFeedbackRequestById,
   getRequestsForGiver,
   getRequestsForRequester,
+  getRequestsVisibleTo,
   performFeedbackRequestAction,
   submitFeedbackAnswers,
   updateFeedbackRequestDueDate,
@@ -21,6 +22,7 @@ router.use(requireAuth);
 router.post("/", createFeedbackRequest);
 router.get("/giver/:userId", getRequestsForGiver);
 router.get("/requester/:userId", getRequestsForRequester);
+router.get("/visible/:userId", getRequestsVisibleTo);
 router.get("/:id", getFeedbackRequestById);
 router.patch("/:id/due-date", updateFeedbackRequestDueDate);
 router.post("/:id/follow-ups", createFollowUp);

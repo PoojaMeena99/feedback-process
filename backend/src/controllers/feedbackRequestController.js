@@ -3,6 +3,7 @@ import {
   createFeedbackRequest as createFeedbackRequestInDatabase,
   getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
   getRequestsForGiver as getRequestsForGiverFromDatabase,
+  getRequestsForReceiver as getRequestsForReceiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
   getRequestsVisibleTo as getRequestsVisibleToFromDatabase,
   performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
@@ -22,12 +23,13 @@ function parsePositiveInteger(value) {
 export async function createFeedbackRequest(req, res) {
   const requesterId = req.auth.user.id;
   const giverId = parsePositiveInteger(req.body.giverId);
+  const receiverId = parsePositiveInteger(req.body.receiverId);
   const templateId = parsePositiveInteger(req.body.templateId);
   const { message, dueDate, purpose, visibility, viewerIds } = req.body;
 
-  if (!giverId || !templateId) {
+  if (!giverId || !receiverId || !templateId) {
     return res.status(400).json({
-      message: "giverId and templateId must be positive integers",
+      message: "giverId, receiverId and templateId must be positive integers",
     });
   }
 
@@ -35,6 +37,7 @@ export async function createFeedbackRequest(req, res) {
     const feedbackRequest = await createFeedbackRequestInDatabase({
       requesterId,
       giverId,
+      receiverId,
       templateId,
       message,
       dueDate,
@@ -50,6 +53,16 @@ export async function createFeedbackRequest(req, res) {
   } catch (error) {
     return respondWithError(res, error);
   }
+}
+
+export async function getRequestsForReceiver(req, res) {
+  const receiverId = parsePositiveInteger(req.params.userId);
+  if (!receiverId) return res.status(400).json({ message: "User ID must be a positive integer" });
+  if (receiverId !== req.auth.user.id) return res.status(403).json({ message: "You can only view feedback requests received by you" });
+  try {
+    const feedbackRequests = await getRequestsForReceiverFromDatabase(receiverId);
+    return res.status(200).json({ feedbackRequests });
+  } catch (error) { return respondWithError(res, error); }
 }
 
 export async function getRequestsForGiver(req, res) {
@@ -121,7 +134,7 @@ export async function getFeedbackRequestById(req, res) {
       await getFeedbackRequestByIdFromDatabase(requestId);
 
     const hasViewerAccess = feedbackRequest.viewers.some((viewer) => viewer.userId === req.auth.user.id);
-    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && !hasViewerAccess) {
+    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && feedbackRequest.receiverId !== req.auth.user.id && !hasViewerAccess) {
       return res.status(403).json({ message: "You do not have access to this feedback request" });
     }
     return res.status(200).json({ feedbackRequest });

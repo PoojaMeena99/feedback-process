@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
   requester_id INT NOT NULL,
   giver_id INT NOT NULL,
+  receiver_id INT NOT NULL,
   template_id INT NOT NULL,
   message TEXT,
   due_date DATE NULL,
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
 
   FOREIGN KEY (requester_id) REFERENCES users(id),
   FOREIGN KEY (giver_id) REFERENCES users(id),
+  FOREIGN KEY (receiver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
 
@@ -150,6 +152,18 @@ SET @add_purpose_column = (
 PREPARE add_purpose_column_statement FROM @add_purpose_column;
 EXECUTE add_purpose_column_statement;
 DEALLOCATE PREPARE add_purpose_column_statement;
+
+SET @add_receiver_id_column = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN receiver_id INT NULL AFTER giver_id',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'receiver_id'
+);
+PREPARE add_receiver_id_column_statement FROM @add_receiver_id_column;
+EXECUTE add_receiver_id_column_statement;
+DEALLOCATE PREPARE add_receiver_id_column_statement;
+UPDATE feedback_requests SET receiver_id = requester_id WHERE receiver_id IS NULL;
 
 SET @add_visibility_column = (
   SELECT IF(

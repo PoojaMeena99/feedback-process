@@ -87,8 +87,9 @@ export default function Home() {
     latestRequestLoad.current = loadId;
 
     try {
-      const [received, sent, shared] = await Promise.all([
+      const [received, receivedFeedback, sent, shared] = await Promise.all([
         api(`/feedback-requests/giver/${userId}`),
+        api(`/feedback-requests/receiver/${userId}`),
         api(`/feedback-requests/requester/${userId}`),
         api(`/feedback-requests/visible/${userId}`),
       ]);
@@ -97,7 +98,7 @@ export default function Home() {
       if (loadId !== latestRequestLoad.current) return;
 
       const merged = new Map(
-        [...received.feedbackRequests, ...sent.feedbackRequests, ...shared.feedbackRequests]
+        [...received.feedbackRequests, ...receivedFeedback.feedbackRequests, ...sent.feedbackRequests, ...shared.feedbackRequests]
           .map((request) => [request.id, request]),
       );
       const newestFirst = [...merged.values()].sort((first, second) => {
@@ -555,6 +556,7 @@ function StatCard({ icon, tone, label, value, helper }) {
 function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onCreate, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
+  const [receiverId, setReceiverId] = useState(String(currentUserId));
   const [templateId, setTemplateId] = useState("");
   const [message, setMessage] = useState(
     "Please share feedback for my learning progress.",
@@ -603,6 +605,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     }
     const result = await onCreate({
       giverId: Number(giverId),
+      receiverId: Number(receiverId),
       templateId: Number(templateId),
       message,
       dueDate,
@@ -672,6 +675,15 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
             </select>
           </SelectShell>
           <p className="text-sm font-normal text-muted">This person will receive the request and fill the feedback form.</p>
+        </Field>
+
+        <Field label="Who will receive feedback?">
+          <SelectShell>
+            <select className="w-full bg-transparent outline-none" value={receiverId} onChange={(event) => setReceiverId(event.target.value)}>
+              {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+            </select>
+          </SelectShell>
+          <p className="text-sm font-normal text-muted">This person can read and acknowledge submitted feedback.</p>
         </Field>
 
         <Field label="Who can view feedback?">
@@ -922,9 +934,10 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   const template = request.template;
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
+  const isReceiver = Number(currentUserId) === Number(request.receiverId);
   const canSubmit = isGiver && ["requested", "overdue"].includes(request.status);
-  const canAcknowledge = isRequester && request.status === "submitted";
-  const canCreateFollowUp = isRequester && request.status === "acknowledged";
+  const canAcknowledge = isReceiver && request.status === "submitted";
+  const canCreateFollowUp = (isRequester || isReceiver) && request.status === "acknowledged";
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
 
@@ -1162,6 +1175,7 @@ function FollowUpCard({ followUp, request, currentUserId, onUpdate }) {
 function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate }) {
   const isGiver = Number(row.giverId) === Number(currentUserId);
   const isRequester = Number(row.requesterId) === Number(currentUserId);
+  const isReceiver = Number(row.receiverId) === Number(currentUserId);
   const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
   const destructiveButtonClass = "rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50";
 
@@ -1183,7 +1197,7 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
     );
   }
 
-  if (isRequester && row.status === "submitted") {
+  if (isReceiver && row.status === "submitted") {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
@@ -1192,7 +1206,7 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
     );
   }
 
-  if (isRequester && row.status === "acknowledged") {
+  if ((isRequester || isReceiver) && row.status === "acknowledged") {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>

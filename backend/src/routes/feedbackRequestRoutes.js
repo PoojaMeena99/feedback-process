@@ -5,6 +5,7 @@ import {
   createFollowUp,
   getFeedbackRequestById,
   getRequestsForGiver,
+  getRequestsForReceiver,
   getRequestsForRequester,
   getRequestsVisibleTo,
   performFeedbackRequestAction,
@@ -21,6 +22,7 @@ router.use(requireAuth);
 
 router.post("/", createFeedbackRequest);
 router.get("/giver/:userId", getRequestsForGiver);
+router.get("/receiver/:userId", getRequestsForReceiver);
 router.get("/requester/:userId", getRequestsForRequester);
 router.get("/visible/:userId", getRequestsVisibleTo);
 router.get("/:id", getFeedbackRequestById);

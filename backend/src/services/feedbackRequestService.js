@@ -11,6 +11,9 @@ const requestSelect = `
     request.giver_id AS giverId,
     giver.name AS giverName,
     giver.email AS giverEmail,
+    request.receiver_id AS receiverId,
+    receiver.name AS receiverName,
+    receiver.email AS receiverEmail,
     request.template_id AS templateId,
     template.name AS templateName,
     request.message,
@@ -30,6 +33,7 @@ const requestSelect = `
   FROM feedback_requests AS request
   JOIN users AS requester ON requester.id = request.requester_id
   JOIN users AS giver ON giver.id = request.giver_id
+  JOIN users AS receiver ON receiver.id = request.receiver_id
   JOIN feedback_templates AS template ON template.id = request.template_id
 `;
 
@@ -70,6 +74,7 @@ async function markOverdueRequests(pool) {
 export async function createFeedbackRequest({
   requesterId,
   giverId,
+  receiverId,
   templateId,
   message,
   dueDate,
@@ -88,6 +93,7 @@ export async function createFeedbackRequest({
   const normalizedViewerIds = normalizeViewerIds(viewerIds, requesterId, giverId, normalizedVisibility);
   await requireUser(pool, requesterId, "Requester");
   await requireUser(pool, giverId, "Feedback giver");
+  await requireUser(pool, receiverId, "Feedback receiver");
   for (const viewerId of normalizedViewerIds) {
     await requireUser(pool, viewerId, "Selected viewer");
   }
@@ -98,10 +104,11 @@ export async function createFeedbackRequest({
      FROM feedback_requests
      WHERE requester_id = ?
        AND giver_id = ?
+       AND receiver_id = ?
        AND template_id = ?
        AND status = 'requested'
      LIMIT 1`,
-    [requesterId, giverId, templateId],
+    [requesterId, giverId, receiverId, templateId],
   );
 
   if (duplicateRequest) {
@@ -117,9 +124,9 @@ export async function createFeedbackRequest({
     await connection.beginTransaction();
     [result] = await connection.execute(
       `INSERT INTO feedback_requests
-         (requester_id, giver_id, template_id, message, due_date, purpose, visibility, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'requested')`,
-      [requesterId, giverId, templateId, message || null, normalizedDueDate, normalizedPurpose, normalizedVisibility],
+         (requester_id, giver_id, receiver_id, template_id, message, due_date, purpose, visibility, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'requested')`,
+      [requesterId, giverId, receiverId, templateId, message || null, normalizedDueDate, normalizedPurpose, normalizedVisibility],
     );
     for (const viewerId of normalizedViewerIds) {
       await connection.execute(
@@ -243,6 +250,17 @@ export async function getRequestsForRequester(requesterId) {
   return requests;
 }
 
+export async function getRequestsForReceiver(receiverId) {
+  const pool = getDatabasePool();
+  await requireUser(pool, receiverId, "Feedback receiver");
+  await markOverdueRequests(pool);
+  const [requests] = await pool.execute(
+    `${requestSelect} WHERE request.receiver_id = ? ORDER BY request.created_at DESC, request.id DESC`,
+    [receiverId],
+  );
+  return requests;
+}
+
 export async function getRequestsVisibleTo(viewerId) {
   const pool = getDatabasePool();
   await requireUser(pool, viewerId, "Viewer");
@@ -330,16 +348,16 @@ export async function createFollowUp({ requestId, actorId, details, ownerId, due
   const normalizedDueDate = normalizeDueDate(dueDate);
   const pool = getDatabasePool();
   const [[request]] = await pool.execute(
-    "SELECT requester_id AS requesterId, giver_id AS giverId, status FROM feedback_requests WHERE id = ?",
+    "SELECT requester_id AS requesterId, giver_id AS giverId, receiver_id AS receiverId, status FROM feedback_requests WHERE id = ?",
     [requestId],
   );
   if (!request) throw new ServiceError(404, "Feedback request not found");
-  if (actorId !== request.requesterId) throw new ServiceError(403, "Only the requester can create a follow-up");
+  if (![request.requesterId, request.receiverId].includes(actorId)) throw new ServiceError(403, "Only the requester or receiver can create a follow-up");
   if (request.status !== "acknowledged") throw new ServiceError(409, "Follow-ups can be created after feedback is acknowledged");
   if (!details?.trim()) throw new ServiceError(400, "Follow-up details are required");
   if (details.trim().length > 500) throw new ServiceError(400, "Follow-up details must be 500 characters or less");
   await requireUser(pool, ownerId, "Follow-up owner");
-  if (![request.requesterId, request.giverId].includes(ownerId)) {
+  if (![request.requesterId, request.giverId, request.receiverId].includes(ownerId)) {
     throw new ServiceError(400, "Follow-up owner must be part of this feedback request");
   }
   const [result] = await pool.execute(
@@ -460,14 +478,14 @@ const lifecycleActions = {
     to: "cancelled",
   },
   acknowledge: {
-    actorColumn: "requester_id",
-    actorLabel: "requester",
+    actorColumn: "receiver_id",
+    actorLabel: "feedback receiver",
     from: "submitted",
     to: "acknowledged",
   },
   close: {
-    actorColumn: "requester_id",
-    actorLabel: "requester",
+    actorColumn: "requester_or_receiver",
+    actorLabel: "requester or feedback receiver",
     from: "acknowledged",
     to: "closed",
   },
@@ -493,7 +511,7 @@ export async function performFeedbackRequestAction(
     await connection.beginTransaction();
 
     const [[request]] = await connection.execute(
-      `SELECT id, requester_id AS requesterId, giver_id AS giverId, status
+      `SELECT id, requester_id AS requesterId, giver_id AS giverId, receiver_id AS receiverId, status
        FROM feedback_requests
        WHERE id = ?
        FOR UPDATE`,
@@ -504,10 +522,11 @@ export async function performFeedbackRequestAction(
       throw new ServiceError(404, "Feedback request not found");
     }
 
-    const expectedActorId =
-      rule.actorColumn === "giver_id" ? request.giverId : request.requesterId;
-
-    if (actorId !== expectedActorId) {
+    const permitted = rule.actorColumn === "giver_id" ? actorId === request.giverId
+      : rule.actorColumn === "receiver_id" ? actorId === request.receiverId
+      : rule.actorColumn === "requester_or_receiver" ? [request.requesterId, request.receiverId].includes(actorId)
+      : actorId === request.requesterId;
+    if (!permitted) {
       throw new ServiceError(403, `Only the ${rule.actorLabel} can ${action} this request`);
     }
 

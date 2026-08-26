@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowRight, LockKeyhole, MessageCircle } from "lucide-react";
+import { ArrowRight, LockKeyhole } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -45,11 +45,11 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-[#f5f7ff] px-4 py-8 text-slate-950 sm:px-8">
       <div className="w-full max-w-md">
         <Link className="mx-auto mb-8 flex w-fit items-center gap-3" href="/">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white shadow-md">
-            <MessageCircle aria-hidden="true" size={21} />
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-md">
+            <img src="/justuju-logo.png" alt="Justuju" className="h-full w-full object-cover" />
           </span>
           <span>
-            <span className="block text-lg font-bold text-[#252d70]">Feedback Hub</span>
+            <span className="block text-lg font-bold text-[#252d70]">Feedback</span>
             <span className="block text-xs text-slate-500">Feedback Process</span>
           </span>
         </Link>

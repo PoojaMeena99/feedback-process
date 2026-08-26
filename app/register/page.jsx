@@ -7,7 +7,6 @@ import {
   ArrowRight,
   CheckCircle2,
   LockKeyhole,
-  MessageCircle,
   Sparkles,
 } from "lucide-react";
 
@@ -73,11 +72,11 @@ export default function RegisterPage() {
         <div className="absolute -bottom-20 right-0 h-80 w-80 rounded-full bg-indigo-300/20 blur-3xl" />
 
         <Link className="relative flex w-fit items-center gap-3" href="/">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-indigo-400 shadow-lg shadow-blue-950/30">
-            <MessageCircle aria-hidden="true" size={24} />
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg shadow-blue-950/30">
+            <img src="/justuju-logo.png" alt="Justuju" className="h-full w-full object-cover" />
           </span>
           <span>
-            <span className="block text-lg font-bold tracking-tight">Feedback Hub</span>
+            <span className="block text-lg font-bold tracking-tight">Feedback</span>
             <span className="block text-sm text-blue-200">Feedback Process</span>
           </span>
         </Link>
@@ -111,10 +110,10 @@ export default function RegisterPage() {
       <section className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-8 lg:px-12 xl:px-20">
         <div className="w-full max-w-xl">
           <Link className="mb-8 flex w-fit items-center gap-3 lg:hidden" href="/">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white shadow-md">
-              <MessageCircle aria-hidden="true" size={21} />
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-md">
+              <img src="/justuju-logo.png" alt="Justuju" className="h-full w-full object-cover" />
             </span>
-            <span className="text-lg font-bold text-[#252d70]">Feedback Hub</span>
+            <span className="text-lg font-bold text-[#252d70]">Feedback</span>
           </Link>
 
           <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_24px_70px_rgba(37,45,112,0.12)] sm:p-9 xl:p-10">

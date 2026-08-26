@@ -7,7 +7,6 @@ import {
   Home as HomeIcon,
   Inbox,
   LogOut,
-  MessageCircle,
   Plus,
   Send,
   Sparkles,
@@ -233,13 +232,13 @@ export default function Home() {
   }
 
   if (isAuthLoading) {
-    return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback Hub…</main>;
+    return <main className="flex min-h-screen items-center justify-center text-lg text-muted">Loading Feedback…</main>;
   }
 
   if (!currentUser) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-xl font-semibold text-slate-900">Feedback Hub could not load</p>
+        <p className="text-xl font-semibold text-slate-900">Feedback could not load</p>
         <p className="text-base text-muted">{error || "Please sign in to continue."}</p>
         <button className={primaryButton} onClick={() => router.push("/login")}>Go to login</button>
       </main>
@@ -260,7 +259,7 @@ export default function Home() {
                 <Sparkles size={15} />
                 Feedback workspace
               </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback Hub</h1>
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback</h1>
               <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
             </div>
           </div>
@@ -461,11 +460,11 @@ function AppHeader({ currentUser, onLogout, isLoggingOut }) {
     <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500 text-white shadow-lg shadow-blue-950/30">
-            <MessageCircle size={21} />
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg shadow-blue-950/30">
+            <img src="/justuju-logo.png" alt="Justuju" className="h-full w-full object-cover" />
           </div>
           <div>
-            <p className="text-lg font-bold tracking-tight text-white">Feedback Hub</p>
+            <p className="text-lg font-bold tracking-tight text-white">Feedback</p>
             <p className="text-xs font-medium text-blue-200">Feedback Process</p>
           </div>
         </div>
@@ -495,7 +494,7 @@ function AppFooter() {
   return (
     <footer className="border-t border-slate-800 bg-slate-950 px-5 py-5 text-sm text-slate-400 sm:px-7">
       <div className="mx-auto flex max-w-[1800px] flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <p>© 2026 Feedback Hub. Built for clear, thoughtful feedback.</p>
+        <p>© 2026 Feedback. Built for clear, thoughtful feedback.</p>
         <p className="font-medium text-slate-300">Feedback Process</p>
       </div>
     </footer>

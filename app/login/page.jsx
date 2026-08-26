@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowRight, Eye, EyeOff, LockKeyhole, MessageCircle } from "lucide-react";
+import { ArrowRight, LockKeyhole } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -45,11 +45,11 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-[#f5f7ff] px-4 py-8 text-slate-950 sm:px-8">
       <div className="w-full max-w-md">
         <Link className="mx-auto mb-8 flex w-fit items-center gap-3" href="/">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white shadow-md">
-            <MessageCircle aria-hidden="true" size={21} />
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-md">
+            <img src="/justuju-logo.png" alt="Justuju" className="h-full w-full object-cover" />
           </span>
           <span>
-            <span className="block text-lg font-bold text-[#252d70]">Feedback Hub</span>
+            <span className="block text-lg font-bold text-[#252d70]">Feedback</span>
             <span className="block text-xs text-slate-500">Feedback Process</span>
           </span>
         </Link>
@@ -83,12 +83,6 @@ export default function LoginPage() {
               value={form.password}
             />
 
-            <div className="-mt-2 text-right">
-              <Link className="text-sm font-semibold text-[#36429a] hover:underline" href="/forgot-password">
-                Forgot password?
-              </Link>
-            </div>
-
             {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
             <button
@@ -114,14 +108,11 @@ export default function LoginPage() {
 }
 
 function AuthField({ autoComplete, id, label, onChange, placeholder, type, value }) {
-  const [showPassword, setShowPassword] = useState(false);
-  const isPassword = type === "password";
-
   return (
     <label className="grid gap-2" htmlFor={id}>
       <span className="text-sm font-semibold text-slate-800">{label}</span>
       <span className="relative">
-        {isPassword ? (
+        {type === "password" ? (
           <LockKeyhole
             aria-hidden="true"
             className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
@@ -131,26 +122,16 @@ function AuthField({ autoComplete, id, label, onChange, placeholder, type, value
         <input
           autoComplete={autoComplete}
           className={`min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100 ${
-            isPassword ? "pl-11 pr-12" : ""
+            type === "password" ? "pl-11" : ""
           }`}
           id={id}
           name={id}
           onChange={onChange}
           placeholder={placeholder}
           required
-          type={isPassword && showPassword ? "text" : type}
+          type={type}
           value={value}
         />
-        {isPassword ? (
-          <button
-            aria-label={showPassword ? "Hide password" : "Show password"}
-            className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#252d70] focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            onClick={() => setShowPassword((current) => !current)}
-            type="button"
-          >
-            {showPassword ? <EyeOff aria-hidden="true" size={19} /> : <Eye aria-hidden="true" size={19} />}
-          </button>
-        ) : null}
       </span>
     </label>
   );

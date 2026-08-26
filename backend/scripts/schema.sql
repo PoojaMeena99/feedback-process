@@ -111,8 +111,10 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   message TEXT,
   due_date DATE NULL,
   purpose VARCHAR(40) NULL,
+  visibility VARCHAR(30) NOT NULL DEFAULT 'private',
   status VARCHAR(30) DEFAULT 'requested',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   FOREIGN KEY (requester_id) REFERENCES users(id),
   FOREIGN KEY (giver_id) REFERENCES users(id),
@@ -148,6 +150,36 @@ SET @add_purpose_column = (
 PREPARE add_purpose_column_statement FROM @add_purpose_column;
 EXECUTE add_purpose_column_statement;
 DEALLOCATE PREPARE add_purpose_column_statement;
+
+SET @add_visibility_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    "ALTER TABLE feedback_requests ADD COLUMN visibility VARCHAR(30) NOT NULL DEFAULT 'private' AFTER purpose",
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'visibility'
+);
+PREPARE add_visibility_column_statement FROM @add_visibility_column;
+EXECUTE add_visibility_column_statement;
+DEALLOCATE PREPARE add_visibility_column_statement;
+
+SET @add_request_updated_at_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'updated_at'
+);
+PREPARE add_request_updated_at_column_statement FROM @add_request_updated_at_column;
+EXECUTE add_request_updated_at_column_statement;
+DEALLOCATE PREPARE add_request_updated_at_column_statement;
 
 SET @add_acknowledgement_comment_column = (
   SELECT IF(
@@ -220,6 +252,15 @@ CREATE TABLE IF NOT EXISTS feedback_follow_ups (
   FOREIGN KEY (owner_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS feedback_request_viewers (
+  request_id INT NOT NULL,
+  user_id INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (request_id, user_id),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE OR REPLACE VIEW feedback_request_details AS
 SELECT
   request.id,
@@ -229,6 +270,7 @@ SELECT
   request.message,
   request.due_date,
   request.purpose,
+  request.visibility,
   request.status,
   request.created_at
 FROM feedback_requests AS request

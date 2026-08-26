@@ -55,9 +55,8 @@ export default function Home() {
   );
   const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
   const submittedCount = requests.filter((request) => request.status === "submitted").length;
-  const tableRows = requests
-    .filter((request) => request.giverId === currentUserId || request.requesterId === currentUserId)
-    .map(toTableRow);
+  // Requests returned here already belong to the current user or were shared with them.
+  const tableRows = requests.map(toTableRow);
 
   useEffect(() => {
     async function loadReferenceData() {
@@ -89,15 +88,19 @@ export default function Home() {
     latestRequestLoad.current = loadId;
 
     try {
-      const [received, sent] = await Promise.all([
+      const [received, sent, shared] = await Promise.all([
         api(`/feedback-requests/giver/${userId}`),
         api(`/feedback-requests/requester/${userId}`),
+        api(`/feedback-requests/visible/${userId}`),
       ]);
 
       // When the selected user changes quickly, ignore an older response.
       if (loadId !== latestRequestLoad.current) return;
 
-      const merged = new Map([...received.feedbackRequests, ...sent.feedbackRequests].map((request) => [request.id, request]));
+      const merged = new Map(
+        [...received.feedbackRequests, ...sent.feedbackRequests, ...shared.feedbackRequests]
+          .map((request) => [request.id, request]),
+      );
       const newestFirst = [...merged.values()].sort((first, second) => {
         const dateDifference = new Date(second.createdAt) - new Date(first.createdAt);
         return dateDifference || second.id - first.id;
@@ -559,6 +562,8 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   );
   const [dueDate, setDueDate] = useState("");
   const [purpose, setPurpose] = useState("growth");
+  const [visibility, setVisibility] = useState("private");
+  const [viewerIds, setViewerIds] = useState([]);
   const [notice, setNotice] = useState(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -567,6 +572,14 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       setGiverId(possibleGivers[0]?.id ?? "");
     }
   }, [currentUserId, giverId, possibleGivers]);
+
+  const possibleViewers = users.filter(
+    (user) => user.id !== currentUserId && user.id !== Number(giverId),
+  );
+
+  useEffect(() => {
+    setViewerIds((currentIds) => currentIds.filter((id) => possibleViewers.some((user) => user.id === id)));
+  }, [giverId, currentUserId, users]);
 
   useEffect(() => {
     if (!templates.some((template) => template.id === Number(templateId))) {
@@ -581,7 +594,23 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       setNotice("Due date cannot be in the past.");
       return;
     }
-    const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate, purpose });
+    if (visibility === "mentor_lead" && viewerIds.length !== 1) {
+      setNotice("Choose one mentor or lead who can view this feedback.");
+      return;
+    }
+    if (visibility === "selected_group" && viewerIds.length === 0) {
+      setNotice("Choose at least one group member who can view this feedback.");
+      return;
+    }
+    const result = await onCreate({
+      giverId: Number(giverId),
+      templateId: Number(templateId),
+      message,
+      dueDate,
+      purpose,
+      visibility,
+      viewerIds,
+    });
     if (result.ok) {
       onClose();
       return;
@@ -645,6 +674,60 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
           </SelectShell>
           <p className="text-sm font-normal text-muted">This person will receive the request and fill the feedback form.</p>
         </Field>
+
+        <Field label="Who can view feedback?">
+          <SelectShell>
+            <select
+              className="w-full bg-transparent outline-none"
+              value={visibility}
+              onChange={(event) => {
+                setVisibility(event.target.value);
+                setViewerIds([]);
+              }}
+            >
+              <option value="private">Private — only us</option>
+              <option value="mentor_lead">Mentor or lead</option>
+              <option value="selected_group">Selected group</option>
+            </select>
+          </SelectShell>
+          <p className="text-sm font-normal text-muted">Private requests are visible only to you and the feedback giver.</p>
+        </Field>
+
+        {visibility === "mentor_lead" ? (
+          <div className="grid gap-2 text-base font-medium text-[#1f2937]">
+            <span>Select mentor or lead</span>
+            <SelectShell>
+              <select
+                className="w-full bg-transparent outline-none"
+                value={viewerIds[0] || ""}
+                onChange={(event) => setViewerIds(event.target.value ? [Number(event.target.value)] : [])}
+              >
+                <option value="">Choose one person</option>
+                {possibleViewers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+              </select>
+            </SelectShell>
+            <p className="text-sm font-normal text-muted">They can read this request and its feedback, but cannot edit it.</p>
+          </div>
+        ) : null}
+
+        {visibility === "selected_group" ? (
+          <div className="grid gap-2 text-base font-medium text-[#1f2937]">
+            <span>Select group members</span>
+            <div className="grid gap-2 rounded-lg border border-line bg-slate-50 p-3">
+              {possibleViewers.map((user) => (
+                <label className="flex items-center gap-3 rounded-md px-2 py-1 text-sm font-medium" key={user.id}>
+                  <input
+                    type="checkbox"
+                    checked={viewerIds.includes(user.id)}
+                    onChange={(event) => setViewerIds((ids) => event.target.checked ? [...ids, user.id] : ids.filter((id) => id !== user.id))}
+                  />
+                  {user.name}
+                </label>
+              ))}
+            </div>
+            <p className="text-sm font-normal text-muted">Selected people can read this request and its feedback, but cannot edit it.</p>
+          </div>
+        ) : null}
 
         <Field label="Due date">
           <input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
@@ -877,6 +960,11 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             <p className="font-semibold text-slate-800">Feedback purpose</p>
             <p className="mt-1 text-slate-600">{formatPurpose(request.purpose)}</p>
           </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+            <p className="font-semibold text-slate-800">Visibility</p>
+            <p className="mt-1 text-slate-600">{formatVisibility(request.visibility)}</p>
+            {request.viewers?.length ? <p className="mt-1 text-slate-600">Shared with: {request.viewers.map((viewer) => viewer.name).join(", ")}</p> : null}
+          </div>
           {template.questions.map((question, index) => (
             <Field key={question.id} label={<span className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span><span>{question.questionText}</span></span>}>
               <textarea
@@ -922,6 +1010,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
               </div>
             </section>
           ) : null}
+          {!canSubmit && !canAcknowledge ? <FeedbackHistory request={request} /> : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
             <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
             <div className="flex flex-wrap gap-2">
@@ -950,6 +1039,75 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
         </form>
       </section>
     </div>
+  );
+}
+
+function FeedbackHistory({ request }) {
+  const history = [{
+    id: "created",
+    title: "Request created",
+    description: `${request.requesterName} asked ${request.giverName} for feedback`,
+    time: request.createdAt,
+  }];
+  const submittedAt = request.answers?.[0]?.createdAt;
+  if (submittedAt) {
+    history.push({
+      id: "submitted",
+      title: "Feedback submitted",
+      description: `${request.giverName} submitted feedback`,
+      time: submittedAt,
+    });
+  }
+  if (request.acknowledgedAt) {
+    history.push({
+      id: "acknowledged",
+      title: "Feedback acknowledged",
+      description: `${request.requesterName} acknowledged the feedback`,
+      time: request.acknowledgedAt,
+    });
+  }
+  (request.followUps || []).forEach((followUp) => {
+    history.push({
+      id: `follow-up-created-${followUp.id}`,
+      title: "Follow-up created",
+      description: `${request.requesterName} assigned an action to ${followUp.ownerName}: ${followUp.details}`,
+      time: followUp.createdAt,
+    });
+    if (followUp.completedAt) {
+      history.push({
+        id: `follow-up-completed-${followUp.id}`,
+        title: "Follow-up completed",
+        description: `${followUp.ownerName} completed the follow-up action`,
+        time: followUp.completedAt,
+      });
+    }
+  });
+  if (request.status === "closed") {
+    history.push({
+      id: "closed",
+      title: "Request closed",
+      description: `${request.requesterName} closed this feedback process`,
+      time: request.updatedAt,
+    });
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+      <p className="font-semibold text-slate-900">Feedback history</p>
+      <ol className="mt-4 grid gap-4 border-l-2 border-blue-200 pl-5">
+        {history
+          .filter((item) => item.time)
+          .sort((first, second) => new Date(first.time) - new Date(second.time))
+          .map((item) => (
+            <li className="relative" key={item.id}>
+              <span className="absolute -left-[1.85rem] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-600" />
+              <p className="font-semibold text-slate-900">{item.title}</p>
+              <p className="mt-1 text-sm text-slate-600">{item.description}</p>
+              <p className="mt-1 text-xs font-medium text-slate-500">{formatHistoryTime(item.time)}</p>
+            </li>
+          ))}
+      </ol>
+    </section>
   );
 }
 
@@ -1089,6 +1247,12 @@ function toTableRow(request) {
   };
 }
 
+function formatVisibility(visibility) {
+  if (visibility === "mentor_lead") return "Shared with one mentor or lead";
+  if (visibility === "selected_group") return "Shared with the selected group";
+  return "Private — visible only to requester and feedback giver";
+}
+
 function formatPurpose(purpose) {
   const labels = {
     growth: "Development and growth",
@@ -1109,4 +1273,12 @@ function formatDueDate(dueDate) {
 
   const [year, month, day] = dueDate.slice(0, 10).split("-");
   return year && month && day ? `${day}/${month}/${year}` : "No due date";
+}
+
+function formatHistoryTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time unavailable";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(date);
 }

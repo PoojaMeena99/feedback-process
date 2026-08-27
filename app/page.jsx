@@ -45,6 +45,8 @@ export default function Home() {
   const [followUpRequest, setFollowUpRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [activePage, setActivePage] = useState("dashboard");
+  const [requestSearch, setRequestSearch] = useState("");
+  const [requestStatus, setRequestStatus] = useState("all");
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -60,6 +62,14 @@ export default function Home() {
   const tableRows = requests.map(toTableRow);
   const historyRows = tableRows.filter((request) => ["closed", "cancelled", "declined"].includes(request.status));
   const activeRequestRows = tableRows.filter((request) => !["closed", "cancelled", "declined"].includes(request.status));
+  const rowsForActivePage = activePage === "history" ? historyRows : activeRequestRows;
+  const visibleRows = rowsForActivePage.filter((request) => {
+    const searchableText = [request.requesterName, request.giverName, request.type, request.purpose, request.status].join(" ").toLowerCase();
+    return searchableText.includes(requestSearch.trim().toLowerCase()) && (requestStatus === "all" || request.status === requestStatus);
+  });
+  const statusOptions = activePage === "history"
+    ? [["closed", "Done"], ["cancelled", "Cancelled"], ["declined", "Declined"]]
+    : [["requested", "Requested"], ["overdue", "Overdue"], ["submitted", "Submitted"], ["acknowledged", "Acknowledged"]];
   const upcomingRequests = tableRows.filter((request) => ["requested", "overdue"].includes(request.status) && request.dueDate !== "Not selected").slice(0, 3);
 
   useEffect(() => {
@@ -256,7 +266,7 @@ export default function Home() {
       <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
-        <Sidebar activePage={activePage} onSelect={setActivePage} />
+        <Sidebar activePage={activePage} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); }} />
 
         <main className="border-x border-line/70 bg-white/45 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8">
           <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -303,9 +313,17 @@ export default function Home() {
           </> : null}
 
           {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
-            <div className="flex flex-wrap items-center justify-end gap-3 border-b border-line px-6 py-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
+              <div className="flex flex-1 flex-wrap items-center gap-3">
+                <input className="field-control max-w-xs" type="search" value={requestSearch} placeholder="Search people, type, or purpose" onChange={(event) => setRequestSearch(event.target.value)} />
+                <select className="field-control w-auto min-w-40" value={requestStatus} onChange={(event) => setRequestStatus(event.target.value)}>
+                  <option value="all">All statuses</option>
+                  {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                {requestSearch || requestStatus !== "all" ? <button className="text-sm font-semibold text-blue-700 hover:text-blue-900" type="button" onClick={() => { setRequestSearch(""); setRequestStatus("all"); }}>Clear filters</button> : null}
+              </div>
               <div className="flex items-center gap-3">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{activePage === "history" ? `${historyRows.length} history records` : `${activeRequestRows.length} total requests`}</span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{activePage === "history" ? `${visibleRows.length} history records` : `${visibleRows.length} total requests`}</span>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -322,7 +340,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {(activePage === "history" ? historyRows : activeRequestRows).length ? (activePage === "history" ? historyRows : activeRequestRows).map((row) => (
+                  {visibleRows.length ? visibleRows.map((row) => (
                     <tr key={row.id} className="hover:bg-[#f9fbff]">
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">
@@ -370,7 +388,7 @@ export default function Home() {
                   )) : (
                     <tr>
                       <td className="px-6 py-12 text-center text-base text-muted" colSpan={7}>
-                        {activePage === "history" ? "No feedback history yet." : "No feedback requests yet. Create a request from the right panel."}
+                        {requestSearch || requestStatus !== "all" ? "No requests match these filters." : activePage === "history" ? "No feedback history yet." : "No feedback requests yet. Create a request from the right panel."}
                       </td>
                     </tr>
                   )}
@@ -378,7 +396,7 @@ export default function Home() {
               </table>
             </div>
             <div className="flex items-center justify-between border-t border-line px-6 py-4 text-base text-muted">
-              <span>Showing 1 to {activePage === "history" ? historyRows.length : activeRequestRows.length} of {activePage === "history" ? historyRows.length : activeRequestRows.length} {activePage === "history" ? "history records" : "requests"}</span>
+              <span>Showing 1 to {visibleRows.length} of {rowsForActivePage.length} {activePage === "history" ? "history records" : "requests"}</span>
             </div>
           </section> : null}
           {error ? (

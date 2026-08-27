@@ -345,7 +345,7 @@ export default function Home() {
                         <p className="font-semibold">{row.dueDate}</p>
                       </td>
                       <td className="px-4 py-5">
-                        <span className={statusClass(row.status)}>{row.status}</span>
+                        <span className={statusClass(row.status)}>{row.status === "closed" ? "Done" : row.status}</span>
                         {row.status === "submitted" && row.giverId === currentUserId ? (
                           <p className="mt-1 text-xs font-medium text-slate-500">
                             Waiting for {row.requesterName} to acknowledge
@@ -943,6 +943,14 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   const canAcknowledge = isReceiver && request.status === "submitted";
   const canCreateFollowUp = (isRequester || isReceiver) && request.status === "acknowledged";
   const feedbackWasShared = ["submitted", "acknowledged", "closed"].includes(request.status);
+  const wasStopped = ["cancelled", "declined"].includes(request.status);
+  const footerMessage = request.status === "cancelled"
+    ? "This feedback request was cancelled."
+    : request.status === "declined"
+      ? "This feedback request was declined."
+      : feedbackWasShared
+        ? `This feedback was shared with ${request.requesterName}.`
+        : `Your feedback will be shared with ${request.requesterName}.`;
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
 
@@ -982,7 +990,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             <p className="mt-1 text-slate-600">{formatVisibility(request.visibility)}</p>
             {request.viewers?.length ? <p className="mt-1 text-slate-600">Shared with: {request.viewers.map((viewer) => viewer.name).join(", ")}</p> : null}
           </div>
-          {template.questions.map((question, index) => (
+          {!wasStopped ? template.questions.map((question, index) => (
             <Field key={question.id} label={<span className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span><span>{question.questionText}</span></span>}>
               <textarea
                 className={`${fieldClass} min-h-28 resize-y border-slate-200 bg-slate-50/70 leading-7 focus:bg-white disabled:bg-surface disabled:text-muted`}
@@ -992,7 +1000,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
                 required
               />
             </Field>
-          ))}
+          )) : null}
           {canAcknowledge ? (
             <Field label="Acknowledgement comment (optional)">
               <textarea
@@ -1029,7 +1037,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
           ) : null}
           {!canSubmit && !canAcknowledge ? <FeedbackHistory request={request} /> : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
-            <p className="text-sm text-muted">{feedbackWasShared ? `This feedback was shared with ${request.requesterName}.` : `Your feedback will be shared with ${request.requesterName}.`}</p>
+            <p className="text-sm text-muted">{footerMessage}</p>
             <div className="flex flex-wrap gap-2">
             <button className={secondaryButton} type="button" onClick={onClose}>
               Close
@@ -1102,9 +1110,10 @@ function FeedbackHistory({ request }) {
   if (request.status === "closed") {
     history.push({
       id: "closed",
-      title: "Request closed",
-      description: `${request.requesterName} closed this feedback process`,
+      title: "Feedback completed",
+      description: `${request.requesterName} completed this feedback process`,
       time: request.updatedAt,
+      tone: "green",
     });
   }
   if (request.status === "cancelled") {
@@ -1135,7 +1144,7 @@ function FeedbackHistory({ request }) {
           .sort((first, second) => new Date(first.time) - new Date(second.time))
           .map((item) => (
             <li className="relative" key={item.id}>
-              <span className={`absolute -left-[1.95rem] top-1 h-4 w-4 rounded-full border-2 border-white ${item.tone === "red" ? "bg-red-500" : "bg-blue-600"}`} />
+              <span className={`absolute -left-[1.95rem] top-1 h-4 w-4 rounded-full border-2 border-white ${item.tone === "red" ? "bg-red-500" : item.tone === "green" ? "bg-emerald-500" : "bg-blue-600"}`} />
               <p className="font-semibold text-slate-900">{item.title}</p>
               <p className="mt-1 text-sm text-slate-600">{item.description}</p>
               <p className="mt-1 text-xs font-medium text-slate-500">{formatHistoryTime(item.time)}</p>
@@ -1257,7 +1266,7 @@ function statusClass(status) {
   const base = "status-pill";
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
   if (status === "acknowledged") return `${base} bg-violet-100 text-violet-700`;
-  if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
+  if (status === "closed") return `${base} bg-emerald-100 text-emerald-700`;
   if (status === "overdue") return `${base} bg-amber-100 text-amber-800`;
   if (status === "declined" || status === "cancelled") return `${base} bg-red-100 text-red-700`;
   return `${base} bg-blue-50 text-blue-700`;

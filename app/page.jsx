@@ -942,6 +942,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   const canSubmit = isGiver && ["requested", "overdue"].includes(request.status);
   const canAcknowledge = isReceiver && request.status === "submitted";
   const canCreateFollowUp = (isRequester || isReceiver) && request.status === "acknowledged";
+  const feedbackWasShared = ["submitted", "acknowledged", "closed"].includes(request.status);
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
 
@@ -1028,7 +1029,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
           ) : null}
           {!canSubmit && !canAcknowledge ? <FeedbackHistory request={request} /> : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
-            <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
+            <p className="text-sm text-muted">{feedbackWasShared ? `This feedback was shared with ${request.requesterName}.` : `Your feedback will be shared with ${request.requesterName}.`}</p>
             <div className="flex flex-wrap gap-2">
             <button className={secondaryButton} type="button" onClick={onClose}>
               Close
@@ -1106,6 +1107,24 @@ function FeedbackHistory({ request }) {
       time: request.updatedAt,
     });
   }
+  if (request.status === "cancelled") {
+    history.push({
+      id: "cancelled",
+      title: "Request cancelled",
+      description: `${request.requesterName} cancelled this feedback request`,
+      time: request.updatedAt,
+      tone: "red",
+    });
+  }
+  if (request.status === "declined") {
+    history.push({
+      id: "declined",
+      title: "Request declined",
+      description: `${request.giverName} declined this feedback request${request.declineReason ? `: ${request.declineReason}` : ""}`,
+      time: request.updatedAt,
+      tone: "red",
+    });
+  }
 
   return (
     <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
@@ -1116,7 +1135,7 @@ function FeedbackHistory({ request }) {
           .sort((first, second) => new Date(first.time) - new Date(second.time))
           .map((item) => (
             <li className="relative" key={item.id}>
-              <span className="absolute -left-[1.85rem] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-600" />
+              <span className={`absolute -left-[1.95rem] top-1 h-4 w-4 rounded-full border-2 border-white ${item.tone === "red" ? "bg-red-500" : "bg-blue-600"}`} />
               <p className="font-semibold text-slate-900">{item.title}</p>
               <p className="mt-1 text-sm text-slate-600">{item.description}</p>
               <p className="mt-1 text-xs font-medium text-slate-500">{formatHistoryTime(item.time)}</p>

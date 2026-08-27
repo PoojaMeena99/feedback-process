@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   Home as HomeIcon,
+  History as HistoryIcon,
   Inbox,
   LogOut,
   Plus,
@@ -43,6 +44,7 @@ export default function Home() {
   const [dueDateRequest, setDueDateRequest] = useState(null);
   const [followUpRequest, setFollowUpRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [activePage, setActivePage] = useState("dashboard");
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -53,9 +55,12 @@ export default function Home() {
     (request) => request.giverId === currentUserId && ["requested", "overdue"].includes(request.status),
   );
   const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
-  const submittedCount = requests.filter((request) => request.status === "submitted").length;
+  const receivedFeedback = requests.filter((request) => request.receiverId === currentUserId && request.status === "submitted");
   // Requests returned here already belong to the current user or were shared with them.
   const tableRows = requests.map(toTableRow);
+  const historyRows = tableRows.filter((request) => ["closed", "cancelled", "declined"].includes(request.status));
+  const activeRequestRows = tableRows.filter((request) => !["closed", "cancelled", "declined"].includes(request.status));
+  const upcomingRequests = tableRows.filter((request) => ["requested", "overdue"].includes(request.status) && request.dueDate !== "Not selected").slice(0, 3);
 
   useEffect(() => {
     async function loadReferenceData() {
@@ -251,7 +256,7 @@ export default function Home() {
       <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
-        <Sidebar />
+        <Sidebar activePage={activePage} onSelect={setActivePage} />
 
         <main className="border-x border-line/70 bg-white/45 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8">
           <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -260,11 +265,12 @@ export default function Home() {
                 <Sparkles size={15} />
                 Feedback workspace
               </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback</h1>
-              <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : "Feedback Requests"}</h1>
+              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : "Review, manage, and respond to every feedback request."}</p>
             </div>
           </div>
 
+          {activePage === "dashboard" ? <>
           <section className="grid gap-5 xl:grid-cols-3">
             <StatCard
               icon={<Inbox size={28} />}
@@ -283,21 +289,23 @@ export default function Home() {
             <StatCard
               icon={<Check size={28} />}
               tone="amber"
-              label="Submitted"
-              value={submittedCount}
-              helper="Feedback responses submitted"
+              label="Received feedback"
+              value={receivedFeedback.length}
+              helper="Feedback responses ready to review"
             />
           </section>
 
-          <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
-              <h2 className="text-2xl font-bold text-[#111827]">Feedback Requests</h2>
+          <section className="mt-7 grid gap-5 xl:grid-cols-3">
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-blue-600">Quick actions</p><h2 className="mt-1 text-xl font-bold text-slate-950">What would you like to do?</h2><div className="mt-5 flex flex-wrap gap-3"><button className={primaryButton} type="button" onClick={() => setIsCreateOpen(true)}><Plus size={17} /> Request feedback</button><button className={secondaryButton} type="button" onClick={() => setActivePage("requests")}>View requests ({pendingForMe.length})</button></div></article>
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-amber-600">Upcoming due dates</p><h2 className="mt-1 text-xl font-bold text-slate-950">Keep on track</h2><div className="mt-4 grid gap-2">{upcomingRequests.length ? upcomingRequests.map((request) => <div key={request.id} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold">{request.type}</span><span className="font-bold text-amber-700">{request.dueDate}</span></div>) : <p className="text-sm text-muted">No upcoming due dates.</p>}</div></article>
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recent activity</p><h2 className="mt-1 text-xl font-bold text-slate-950">Latest updates</h2><div className="mt-4 grid gap-2">{tableRows.slice(0, 3).map((request) => <button key={request.id} type="button" onClick={() => void openRequest(request.id)} className="rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-violet-50"><p className="font-semibold text-slate-800">{request.type}</p><p className="mt-1 text-muted">{request.status} · {request.giverName}</p></button>)}</div></article>
+          </section>
+          </> : null}
+
+          {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+            <div className="flex flex-wrap items-center justify-end gap-3 border-b border-line px-6 py-5">
               <div className="flex items-center gap-3">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{tableRows.length} total</span>
-                <button className="inline-flex items-center gap-2 rounded-lg bg-[#252d70] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1e255e]" type="button" onClick={() => setIsCreateOpen(true)}>
-                  <Plus size={17} />
-                  Request feedback
-                </button>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{activePage === "history" ? `${historyRows.length} history records` : `${activeRequestRows.length} total requests`}</span>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -314,7 +322,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {tableRows.length ? tableRows.map((row) => (
+                  {(activePage === "history" ? historyRows : activeRequestRows).length ? (activePage === "history" ? historyRows : activeRequestRows).map((row) => (
                     <tr key={row.id} className="hover:bg-[#f9fbff]">
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">
@@ -356,19 +364,13 @@ export default function Home() {
                         ) : null}
                       </td>
                       <td className="px-4 py-5">
-                        <RequestActions
-                          row={row}
-                          currentUserId={currentUserId}
-                          onView={() => void openRequest(row.id)}
-                          onAction={(action) => handleRequestAction(row, action)}
-                          onEditDueDate={() => setDueDateRequest(row)}
-                        />
+                        {activePage === "history" ? <button className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50" type="button" onClick={() => void openRequest(row.id)}>View</button> : <RequestActions row={row} currentUserId={currentUserId} onView={() => void openRequest(row.id)} onAction={(action) => handleRequestAction(row, action)} onEditDueDate={() => setDueDateRequest(row)} />}
                       </td>
                     </tr>
                   )) : (
                     <tr>
                       <td className="px-6 py-12 text-center text-base text-muted" colSpan={7}>
-                        No feedback requests yet. Create a request from the right panel.
+                        {activePage === "history" ? "No feedback history yet." : "No feedback requests yet. Create a request from the right panel."}
                       </td>
                     </tr>
                   )}
@@ -376,9 +378,9 @@ export default function Home() {
               </table>
             </div>
             <div className="flex items-center justify-between border-t border-line px-6 py-4 text-base text-muted">
-              <span>Showing 1 to {tableRows.length} of {tableRows.length} requests</span>
+              <span>Showing 1 to {activePage === "history" ? historyRows.length : activeRequestRows.length} of {activePage === "history" ? historyRows.length : activeRequestRows.length} {activePage === "history" ? "history records" : "requests"}</span>
             </div>
-          </section>
+          </section> : null}
           {error ? (
             <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {error}
@@ -502,29 +504,31 @@ function AppFooter() {
   );
 }
 
-function Sidebar() {
+function Sidebar({ activePage, onSelect }) {
   return (
     <aside className="hidden border-r border-indigo-400/25 bg-[#252d70] px-4 py-8 text-slate-200 lg:flex lg:flex-col">
       <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.14em] text-indigo-200/70">Workspace</p>
       <nav className="space-y-2 text-base font-medium">
-        <SidebarItem active icon={<HomeIcon size={22} />} label="Dashboard" />
-        <SidebarItem icon={<Inbox size={22} />} label="Feedback Requests" />
+        <SidebarItem active={activePage === "dashboard"} icon={<HomeIcon size={22} />} label="Dashboard" onClick={() => onSelect("dashboard")} />
+        <SidebarItem active={activePage === "requests"} icon={<Inbox size={22} />} label="Feedback Requests" onClick={() => onSelect("requests")} />
+        <SidebarItem active={activePage === "history"} icon={<HistoryIcon size={22} />} label="Feedback History" onClick={() => onSelect("history")} />
       </nav>
     </aside>
   );
 }
 
-function SidebarItem({ active = false, icon, label }) {
+function SidebarItem({ active = false, icon, label, onClick }) {
   return (
-    <a
+    <button
       className={`flex items-center gap-4 rounded-xl px-4 py-3 transition ${
         active ? "bg-white/18 text-white shadow-lg shadow-indigo-950/20" : "text-indigo-100/75 hover:bg-white/10 hover:text-white"
       }`}
-      href="#"
+      type="button"
+      onClick={onClick}
     >
       {icon}
       {label}
-    </a>
+    </button>
   );
 }
 

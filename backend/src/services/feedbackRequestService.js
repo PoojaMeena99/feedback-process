@@ -22,6 +22,8 @@ const requestSelect = `
     request.due_date AS dueDate,
     request.status,
     request.decline_reason AS declineReason,
+    request.alternate_giver_id AS alternateGiverId,
+    alternate_giver.name AS alternateGiverName,
     request.acknowledgement_comment AS acknowledgementComment,
     request.acknowledged_at AS acknowledgedAt,
     EXISTS(
@@ -34,6 +36,7 @@ const requestSelect = `
   JOIN users AS requester ON requester.id = request.requester_id
   JOIN users AS giver ON giver.id = request.giver_id
   JOIN users AS receiver ON receiver.id = request.receiver_id
+  LEFT JOIN users AS alternate_giver ON alternate_giver.id = request.alternate_giver_id
   JOIN feedback_templates AS template ON template.id = request.template_id
 `;
 
@@ -497,6 +500,7 @@ export async function performFeedbackRequestAction(
   action,
   acknowledgementComment = null,
   declineReason = null,
+  alternateGiverId = null,
 ) {
   const rule = lifecycleActions[action];
 
@@ -558,9 +562,21 @@ export async function performFeedbackRequestAction(
         [rule.to, acknowledgementComment, requestId],
       );
     } else if (action === "decline") {
+      if (alternateGiverId) {
+        if ([request.requesterId, request.giverId].includes(alternateGiverId)) {
+          throw new ServiceError(400, "The alternate reviewer must be someone else");
+        }
+        const [[alternateGiver]] = await connection.execute(
+          "SELECT id FROM users WHERE id = ?",
+          [alternateGiverId],
+        );
+        if (!alternateGiver) {
+          throw new ServiceError(404, "Suggested alternate reviewer not found");
+        }
+      }
       await connection.execute(
-        "UPDATE feedback_requests SET status = ?, decline_reason = ? WHERE id = ?",
-        [rule.to, declineReason, requestId],
+        "UPDATE feedback_requests SET status = ?, decline_reason = ?, alternate_giver_id = ? WHERE id = ?",
+        [rule.to, declineReason, alternateGiverId, requestId],
       );
     } else {
       await connection.execute(

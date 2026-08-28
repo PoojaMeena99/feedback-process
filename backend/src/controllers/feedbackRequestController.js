@@ -216,7 +216,10 @@ export async function updateFollowUp(req, res) {
 
 export async function performFeedbackRequestAction(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
-  const { action, acknowledgementComment, declineReason } = req.body;
+  const { action, acknowledgementComment, declineReason, alternateGiverId: submittedAlternateGiverId } = req.body;
+  const alternateGiverId = submittedAlternateGiverId === undefined || submittedAlternateGiverId === null || submittedAlternateGiverId === ""
+    ? null
+    : parsePositiveInteger(submittedAlternateGiverId);
 
   if (!requestId) {
     return res.status(400).json({
@@ -228,6 +231,10 @@ export async function performFeedbackRequestAction(req, res) {
     return res.status(400).json({
       message: "action must be decline, cancel, acknowledge, or close",
     });
+  }
+
+  if (submittedAlternateGiverId !== undefined && submittedAlternateGiverId !== null && submittedAlternateGiverId !== "" && !alternateGiverId) {
+    return res.status(400).json({ message: "alternateGiverId must be a positive integer" });
   }
 
   if (acknowledgementComment !== undefined && typeof acknowledgementComment !== "string") {
@@ -257,6 +264,7 @@ export async function performFeedbackRequestAction(req, res) {
       action,
       acknowledgementComment?.trim() || null,
       declineReason?.trim() || null,
+      alternateGiverId,
     );
 
     return res.status(200).json({

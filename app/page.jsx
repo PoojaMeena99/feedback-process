@@ -43,6 +43,7 @@ export default function Home() {
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
   const [followUpRequest, setFollowUpRequest] = useState(null);
+  const [replacementRequest, setReplacementRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [activePage, setActivePage] = useState("dashboard");
   const [requestSearch, setRequestSearch] = useState("");
@@ -169,11 +170,11 @@ export default function Home() {
     await loadRequests(currentUserId);
   }
 
-  async function performRequestAction(requestId, action, acknowledgementComment, declineReason) {
+  async function performRequestAction(requestId, action, acknowledgementComment, declineReason, alternateGiverId) {
     try {
       await api(`/feedback-requests/${requestId}/actions`, {
         method: "POST",
-        body: JSON.stringify({ action, acknowledgementComment, declineReason }),
+        body: JSON.stringify({ action, acknowledgementComment, declineReason, alternateGiverId }),
       });
       await loadRequests(currentUserId);
       setError("");
@@ -306,7 +307,7 @@ export default function Home() {
           </section>
 
           <section className="mt-7 grid gap-5 xl:grid-cols-3">
-            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-blue-600">Quick actions</p><h2 className="mt-1 text-xl font-bold text-slate-950">What would you like to do?</h2><div className="mt-5 flex flex-wrap gap-3"><button className={primaryButton} type="button" onClick={() => setIsCreateOpen(true)}><Plus size={17} /> Request feedback</button><button className={secondaryButton} type="button" onClick={() => setActivePage("requests")}>View requests ({pendingForMe.length})</button></div></article>
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-blue-600">Quick actions</p><h2 className="mt-1 text-xl font-bold text-slate-950">What would you like to do?</h2><div className="mt-5 flex flex-wrap gap-3"><button className={primaryButton} type="button" onClick={() => { setReplacementRequest(null); setIsCreateOpen(true); }}><Plus size={17} /> Request feedback</button><button className={secondaryButton} type="button" onClick={() => setActivePage("requests")}>View requests ({pendingForMe.length})</button></div></article>
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-amber-600">Upcoming due dates</p><h2 className="mt-1 text-xl font-bold text-slate-950">Keep on track</h2><div className="mt-4 grid gap-2">{upcomingRequests.length ? upcomingRequests.map((request) => <div key={request.id} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold">{request.type}</span><span className="font-bold text-amber-700">{request.dueDate}</span></div>) : <p className="text-sm text-muted">No upcoming due dates.</p>}</div></article>
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recent activity</p><h2 className="mt-1 text-xl font-bold text-slate-950">Latest updates</h2><div className="mt-4 grid gap-2">{tableRows.slice(0, 3).map((request) => <button key={request.id} type="button" onClick={() => void openRequest(request.id)} className="rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-violet-50"><p className="font-semibold text-slate-800">{request.type}</p><p className="mt-1 text-muted">{request.status} · {request.giverName}</p></button>)}</div></article>
           </section>
@@ -382,7 +383,7 @@ export default function Home() {
                         ) : null}
                       </td>
                       <td className="px-4 py-5">
-                        {activePage === "history" ? <button className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50" type="button" onClick={() => void openRequest(row.id)}>View</button> : <RequestActions row={row} currentUserId={currentUserId} onView={() => void openRequest(row.id)} onAction={(action) => handleRequestAction(row, action)} onEditDueDate={() => setDueDateRequest(row)} />}
+                        {activePage === "history" ? <div className="flex flex-wrap gap-2"><button className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50" type="button" onClick={() => void openRequest(row.id)}>View</button>{row.status === "declined" && row.requesterId === currentUserId && row.alternateGiverId ? <button className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-50" type="button" onClick={() => { setReplacementRequest(row); setIsCreateOpen(true); }}>Use suggested reviewer</button> : null}</div> : <RequestActions row={row} currentUserId={currentUserId} onView={() => void openRequest(row.id)} onAction={(action) => handleRequestAction(row, action)} onEditDueDate={() => setDueDateRequest(row)} />}
                       </td>
                     </tr>
                   )) : (
@@ -412,8 +413,9 @@ export default function Home() {
             currentUser={currentUser}
             users={users}
             templates={templates}
+            replacementRequest={replacementRequest}
             onCreate={createRequest}
-            onClose={() => setIsCreateOpen(false)}
+            onClose={() => { setIsCreateOpen(false); setReplacementRequest(null); }}
           />
         ) : null}
       </div>
@@ -435,13 +437,16 @@ export default function Home() {
       {declineRequest ? (
         <DeclineFeedbackModal
           request={declineRequest}
+          users={users}
+          currentUserId={currentUserId}
           onClose={() => setDeclineRequest(null)}
-          onSubmit={async (reason) => {
+          onSubmit={async (reason, alternateGiverId) => {
             const wasDeclined = await performRequestAction(
               declineRequest.id,
               "decline",
               undefined,
               reason,
+              alternateGiverId,
             );
             if (wasDeclined) setDeclineRequest(null);
             return wasDeclined;
@@ -575,7 +580,7 @@ function StatCard({ icon, tone, label, value, helper }) {
   );
 }
 
-function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onCreate, onClose }) {
+function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, replacementRequest, onCreate, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
   const [receiverId, setReceiverId] = useState(String(currentUserId));
@@ -609,6 +614,19 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       setTemplateId(templates[0]?.id ?? "");
     }
   }, [templateId, templates]);
+
+  useEffect(() => {
+    if (!replacementRequest) return;
+    setGiverId(String(replacementRequest.alternateGiverId));
+    setReceiverId(String(replacementRequest.receiverId));
+    setTemplateId(String(replacementRequest.templateId));
+    setPurpose(replacementRequest.rawPurpose || "growth");
+    setDueDate("");
+    setViewerIds([]);
+    setVisibility("private");
+    setMessage(`Replacement request after ${replacementRequest.giverName} declined.`);
+    setNotice(null);
+  }, [replacementRequest]);
 
   async function submit(event) {
     event.preventDefault();
@@ -646,8 +664,8 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     <aside className="border-l border-line/80 bg-white px-6 py-7 shadow-[-10px_0_30px_rgba(15,23,42,0.04)] sm:px-7 sm:py-8 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-72px)] lg:self-start lg:overflow-y-auto">
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">New request</p>
-          <h2 className="text-3xl font-bold tracking-tight text-[#111827]">Request feedback</h2>
+          <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">{replacementRequest ? "Replacement request" : "New request"}</p>
+          <h2 className="text-3xl font-bold tracking-tight text-[#111827]">{replacementRequest ? `Ask ${replacementRequest.alternateGiverName}` : "Request feedback"}</h2>
         </div>
         <button className="rounded-lg p-2 text-muted transition hover:bg-slate-100 hover:text-ink" type="button" aria-label="Close request form" onClick={onClose}>
           ×
@@ -803,8 +821,9 @@ function Field({ label, children }) {
   );
 }
 
-function DeclineFeedbackModal({ request, onClose, onSubmit }) {
+function DeclineFeedbackModal({ request, users, currentUserId, onClose, onSubmit }) {
   const [reason, setReason] = useState("");
+  const [alternateGiverId, setAlternateGiverId] = useState("");
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -817,7 +836,7 @@ function DeclineFeedbackModal({ request, onClose, onSubmit }) {
 
     setIsSubmitting(true);
     setNotice("");
-    const wasDeclined = await onSubmit(reason);
+    const wasDeclined = await onSubmit(reason, alternateGiverId ? Number(alternateGiverId) : null);
     if (!wasDeclined) setIsSubmitting(false);
   }
 
@@ -838,6 +857,13 @@ function DeclineFeedbackModal({ request, onClose, onSubmit }) {
               required
             />
             <p className="text-sm font-normal text-muted">{reason.length} / 500 characters</p>
+          </Field>
+          <Field label="Suggest another reviewer (optional)">
+            <select className={fieldClass} value={alternateGiverId} onChange={(event) => setAlternateGiverId(event.target.value)}>
+              <option value="">No suggestion</option>
+              {users.filter((user) => user.id !== currentUserId && user.id !== request.requesterId).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+            </select>
+            <p className="text-sm font-normal text-muted">The requester can create a replacement request with this person.</p>
           </Field>
           {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{notice}</p> : null}
           <div className="flex justify-end gap-3 pt-2">
@@ -1041,6 +1067,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-950">
               <p className="font-semibold">Decline reason</p>
               <p className="mt-1 whitespace-pre-wrap text-red-800">{request.declineReason}</p>
+              {request.alternateGiverName ? <p className="mt-2 font-semibold text-violet-800">Suggested reviewer: {request.alternateGiverName}</p> : null}
             </div>
           ) : null}
           {!canSubmit && !canAcknowledge && request.followUps?.length ? (
@@ -1147,7 +1174,7 @@ function FeedbackHistory({ request }) {
     history.push({
       id: "declined",
       title: "Request declined",
-      description: `${request.giverName} declined this feedback request${request.declineReason ? `: ${request.declineReason}` : ""}`,
+      description: `${request.giverName} declined this feedback request${request.declineReason ? `: ${request.declineReason}` : ""}${request.alternateGiverName ? `. Suggested reviewer: ${request.alternateGiverName}` : ""}`,
       time: request.updatedAt,
       tone: "red",
     });
@@ -1300,6 +1327,11 @@ function toTableRow(request) {
     giverId: request.giverId,
     giverName: request.giverName,
     giverInitials: initialsForName(request.giverName),
+    receiverId: request.receiverId,
+    templateId: request.templateId,
+    rawPurpose: request.purpose,
+    alternateGiverId: request.alternateGiverId,
+    alternateGiverName: request.alternateGiverName,
     type: request.templateName,
     purpose: formatPurpose(request.purpose),
     dueDate: formatDueDate(request.dueDate),

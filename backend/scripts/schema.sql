@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   due_date DATE NULL,
   purpose VARCHAR(40) NULL,
   visibility VARCHAR(30) NOT NULL DEFAULT 'private',
+  alternate_giver_id INT NULL,
   status VARCHAR(30) DEFAULT 'requested',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -120,6 +121,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   FOREIGN KEY (requester_id) REFERENCES users(id),
   FOREIGN KEY (giver_id) REFERENCES users(id),
   FOREIGN KEY (receiver_id) REFERENCES users(id),
+  FOREIGN KEY (alternate_giver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
 
@@ -224,6 +226,21 @@ SET @add_decline_reason_column = (
 PREPARE add_decline_reason_column_statement FROM @add_decline_reason_column;
 EXECUTE add_decline_reason_column_statement;
 DEALLOCATE PREPARE add_decline_reason_column_statement;
+
+SET @add_alternate_giver_id_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN alternate_giver_id INT NULL AFTER decline_reason',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'alternate_giver_id'
+);
+PREPARE add_alternate_giver_id_column_statement FROM @add_alternate_giver_id_column;
+EXECUTE add_alternate_giver_id_column_statement;
+DEALLOCATE PREPARE add_alternate_giver_id_column_statement;
 
 SET @add_acknowledged_at_column = (
   SELECT IF(

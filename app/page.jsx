@@ -1131,16 +1131,16 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
   const isReceiver = Number(currentUserId) === Number(request.receiverId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
   const canDiscuss = ["submitted", "acknowledged"].includes(request.status);
-  const [type, setType] = useState("clarification");
   const [message, setMessage] = useState("");
   const [replyValues, setReplyValues] = useState({});
   const [notice, setNotice] = useState("");
   const discussions = request.discussions || [];
-  const openItems = discussions.filter((discussion) => !discussion.parentId && discussion.status === "open");
+  const questions = discussions.filter((discussion) => !discussion.parentId);
+  const messages = [...discussions].sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt));
 
   async function sendMessage() {
     if (message.trim().length < 3) return setNotice("Please write at least 3 characters.");
-    const saved = await onDiscussion(request.id, { type, message });
+    const saved = await onDiscussion(request.id, { type: "clarification", message });
     if (saved) {
       setMessage("");
       setNotice("");
@@ -1165,30 +1165,32 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
 
   return (
     <section className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
-      <p className="font-semibold text-slate-900">Clarification and response</p>
-      <p className="mt-1 text-sm text-slate-600">Messages stay with this feedback record and must be resolved before the request can close.</p>
+      <p className="font-semibold text-slate-900">Questions about this feedback</p>
+      <p className="mt-1 text-sm text-slate-600">One conversation for this feedback. Open questions need a reply before the request can close.</p>
 
-      {isReceiver ? <div className="mt-4 grid gap-3">
-        <select className={fieldClass} value={type} onChange={(event) => setType(event.target.value)}>
-          <option value="clarification">Ask for clarification</option>
-          <option value="disagreement">Record a disagreement</option>
-          <option value="support">Request support</option>
-        </select>
-        <textarea className={`${fieldClass} min-h-24 resize-y`} value={message} maxLength={1000} placeholder="Write a clear, respectful question or response." onChange={(event) => setMessage(event.target.value)} />
-        <button className={`${secondaryButton} justify-self-start`} type="button" onClick={() => void sendMessage()}>Send message</button>
+      {messages.length ? <div className="mt-4 space-y-3">
+        {messages.map((discussion) => {
+          const isReply = Boolean(discussion.parentId);
+          const isFromGiver = Number(discussion.authorId) === Number(request.giverId);
+          return <div className={`max-w-[88%] rounded-xl px-4 py-3 ${isFromGiver ? "mr-auto border border-sky-200 bg-white" : "ml-auto bg-emerald-100 text-emerald-950"}`} key={discussion.id}>
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{discussion.authorName} · {isFromGiver ? "Feedback giver" : "Feedback receiver"}</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm">{discussion.message}</p>
+            <p className="mt-2 text-xs text-slate-500">{isReply ? "Reply" : "Question"}</p>
+          </div>;
+        })}
+      </div> : <p className="mt-4 rounded-lg border border-dashed border-sky-200 bg-white/70 px-4 py-3 text-sm text-slate-600">No questions yet.</p>}
+
+      {isReceiver ? <div className="mt-4 grid gap-3 border-t border-sky-100 pt-4">
+        <textarea className={`${fieldClass} min-h-24 resize-y`} value={message} maxLength={1000} placeholder="Ask a question about this feedback" onChange={(event) => setMessage(event.target.value)} />
+        <button className={`${secondaryButton} justify-self-start`} type="button" onClick={() => void sendMessage()}>Send question</button>
       </div> : null}
 
-      {openItems.length ? <div className="mt-4 grid gap-3">
-        {openItems.map((discussion) => <article className="rounded-lg border border-sky-100 bg-white p-3" key={discussion.id}>
-          <p className="text-sm font-bold capitalize text-sky-800">{discussion.type}</p>
-          <p className="mt-1 text-sm font-semibold text-slate-800">{discussion.authorName}</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{discussion.message}</p>
-          {isGiver ? <div className="mt-3 grid gap-2">
-            <textarea className={`${fieldClass} min-h-20 resize-y`} value={replyValues[discussion.id] || ""} maxLength={1000} placeholder="Reply to this message" onChange={(event) => setReplyValues((values) => ({ ...values, [discussion.id]: event.target.value }))} />
-            <button className={`${primaryButton} justify-self-start`} type="button" onClick={() => void sendReply(discussion.id)}>Send reply</button>
-          </div> : <p className="mt-3 text-xs font-semibold text-amber-700">Waiting for the feedback giver’s reply.</p>}
-        </article>)}
-      </div> : discussions.length ? <p className="mt-4 text-sm font-medium text-emerald-700">All clarification messages have been answered.</p> : null}
+      {isGiver ? questions.filter((question) => question.status === "open").map((question) => <div className="mt-4 grid gap-2 border-t border-sky-100 pt-4" key={`reply-${question.id}`}>
+        <p className="text-sm font-semibold text-slate-800">Reply to {question.authorName}’s question</p>
+        <textarea className={`${fieldClass} min-h-20 resize-y`} value={replyValues[question.id] || ""} maxLength={1000} placeholder="Write your reply" onChange={(event) => setReplyValues((values) => ({ ...values, [question.id]: event.target.value }))} />
+        <button className={`${primaryButton} justify-self-start`} type="button" onClick={() => void sendReply(question.id)}>Send reply</button>
+      </div>) : null}
+      {isReceiver && questions.some((question) => question.status === "open") ? <p className="mt-3 text-xs font-semibold text-amber-700">Waiting for the feedback giver’s reply.</p> : null}
       {notice ? <p className="mt-3 text-sm font-medium text-red-700">{notice}</p> : null}
     </section>
   );
@@ -1234,22 +1236,6 @@ function FeedbackHistory({ request }) {
       });
     }
   });
-  (request.discussions || []).forEach((discussion) => {
-    const isReply = discussion.type === "response";
-    const labels = {
-      clarification: "Clarification requested",
-      disagreement: "Disagreement recorded",
-      support: "Support requested",
-      response: "Clarification answered",
-    };
-    history.push({
-      id: `discussion-${discussion.id}`,
-      title: labels[discussion.type] || "Feedback message",
-      description: `${discussion.authorName}: ${discussion.message}`,
-      time: discussion.createdAt,
-      tone: isReply ? "green" : discussion.status === "open" ? "orange" : undefined,
-    });
-  });
   if (request.status === "closed") {
     history.push({
       id: "closed",
@@ -1280,7 +1266,7 @@ function FeedbackHistory({ request }) {
 
   return (
     <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-      <p className="font-semibold text-slate-900">Feedback history</p>
+      <p className="font-semibold text-slate-900">Request timeline</p>
       <ol className="mt-4 grid gap-4 border-l-2 border-blue-200 pl-5">
         {history
           .filter((item) => item.time)

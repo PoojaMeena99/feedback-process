@@ -8,6 +8,7 @@ import {
   getRequestsVisibleTo as getRequestsVisibleToFromDatabase,
   performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
   createFollowUp as createFollowUpInDatabase,
+  createFeedbackDiscussion as createFeedbackDiscussionInDatabase,
   updateFollowUp as updateFollowUpInDatabase,
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
 } from "../services/feedbackRequestService.js";
@@ -197,6 +198,28 @@ export async function createFollowUp(req, res) {
   try {
     const followUp = await createFollowUpInDatabase({ requestId, actorId: req.auth.user.id, details, ownerId, dueDate });
     return res.status(201).json({ message: "Follow-up created", followUp });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function createFeedbackDiscussion(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  const { type, message, parentId } = req.body;
+  const normalizedParentId = parentId === undefined || parentId === null || parentId === "" ? null : parsePositiveInteger(parentId);
+  if (!requestId) return res.status(400).json({ message: "Request ID must be a positive integer" });
+  if (parentId !== undefined && parentId !== null && parentId !== "" && !normalizedParentId) {
+    return res.status(400).json({ message: "parentId must be a positive integer" });
+  }
+  try {
+    const feedbackRequest = await createFeedbackDiscussionInDatabase({
+      requestId,
+      actorId: req.auth.user.id,
+      type,
+      message,
+      parentId: normalizedParentId,
+    });
+    return res.status(201).json({ message: "Feedback discussion saved", feedbackRequest });
   } catch (error) {
     return respondWithError(res, error);
   }

@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import {
   createFeedbackRequest,
+  createFeedbackDiscussion,
   createFollowUp,
   getFeedbackRequestById,
   getRequestsForGiver,
@@ -27,6 +28,7 @@ router.get("/requester/:userId", getRequestsForRequester);
 router.get("/visible/:userId", getRequestsVisibleTo);
 router.get("/:id", getFeedbackRequestById);
 router.patch("/:id/due-date", updateFeedbackRequestDueDate);
+router.post("/:id/discussions", createFeedbackDiscussion);
 router.post("/:id/follow-ups", createFollowUp);
 router.patch("/:id/follow-ups/:followUpId", updateFollowUp);
 router.post("/:id/answers", submitFeedbackAnswers);

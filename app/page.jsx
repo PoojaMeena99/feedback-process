@@ -39,6 +39,7 @@ export default function Home() {
   const [users, setUsers] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [schedules, setSchedules] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
@@ -103,11 +104,12 @@ export default function Home() {
     latestRequestLoad.current = loadId;
 
     try {
-      const [received, receivedFeedback, sent, shared] = await Promise.all([
+      const [received, receivedFeedback, sent, shared, scheduleData] = await Promise.all([
         api(`/feedback-requests/giver/${userId}`),
         api(`/feedback-requests/receiver/${userId}`),
         api(`/feedback-requests/requester/${userId}`),
         api(`/feedback-requests/visible/${userId}`),
+        api("/feedback-requests/schedules"),
       ]);
 
       // When the selected user changes quickly, ignore an older response.
@@ -122,6 +124,7 @@ export default function Home() {
         return dateDifference || second.id - first.id;
       });
       setRequests(newestFirst);
+      setSchedules(scheduleData.schedules);
       setError("");
     } catch (loadError) {
       if (loadId !== latestRequestLoad.current) return;
@@ -145,12 +148,26 @@ export default function Home() {
 
   async function createRequest(payload) {
     try {
-      await api("/feedback-requests", { method: "POST", body: JSON.stringify(payload) });
+      const { recurring, ...requestPayload } = payload;
+      if (recurring) {
+        await api("/feedback-requests/schedules", { method: "POST", body: JSON.stringify(requestPayload) });
+      } else {
+        await api("/feedback-requests", { method: "POST", body: JSON.stringify(requestPayload) });
+      }
       setIsCreateOpen(false);
       await loadRequests(currentUserId);
-      return { ok: true };
+      return { ok: true, recurring };
     } catch (createError) {
       return { ok: false, message: createError.message };
+    }
+  }
+
+  async function setScheduleStatus(scheduleId, isActive) {
+    try {
+      await api(`/feedback-requests/schedules/${scheduleId}`, { method: "PATCH", body: JSON.stringify({ isActive }) });
+      await loadRequests(currentUserId);
+    } catch (scheduleError) {
+      setError(scheduleError.message);
     }
   }
 
@@ -324,6 +341,7 @@ export default function Home() {
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-amber-600">Upcoming due dates</p><h2 className="mt-1 text-xl font-bold text-slate-950">Keep on track</h2><div className="mt-4 grid gap-2">{upcomingRequests.length ? upcomingRequests.map((request) => <div key={request.id} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold">{request.type}</span><span className="font-bold text-amber-700">{request.dueDate}</span></div>) : <p className="text-sm text-muted">No upcoming due dates.</p>}</div></article>
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recent activity</p><h2 className="mt-1 text-xl font-bold text-slate-950">Latest updates</h2><div className="mt-4 grid gap-2">{tableRows.slice(0, 3).map((request) => <button key={request.id} type="button" onClick={() => void openRequest(request.id)} className="rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-violet-50"><p className="font-semibold text-slate-800">{request.type}</p><p className="mt-1 text-muted">{request.status} · {request.giverName}</p></button>)}</div></article>
           </section>
+          {schedules.length ? <section className="mt-5 rounded-2xl border border-line/80 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recurring feedback</p><h2 className="mt-1 text-xl font-bold text-slate-950">Your schedules</h2></div><span className="rounded-full bg-violet-50 px-3 py-1 text-sm font-semibold text-violet-700">{schedules.filter((schedule) => schedule.isActive).length} active</span></div><div className="mt-4 grid gap-3">{schedules.map((schedule) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3" key={schedule.id}><div><p className="font-semibold text-slate-900">{schedule.templateName} · {schedule.giverName} → {schedule.receiverName}</p><p className="mt-1 text-sm text-muted">{schedule.frequency === "quarterly" ? "Every 3 months" : "Monthly"} · Next request: {formatDueDate(schedule.nextRunDate)} · {schedule.dueInDays} days to respond</p></div><button className={secondaryButton} type="button" onClick={() => void setScheduleStatus(schedule.id, !schedule.isActive)}>{schedule.isActive ? "Pause" : "Resume"}</button></div>)}</div></section> : null}
           </> : null}
 
           {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
@@ -603,9 +621,14 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     "Please share feedback for my learning progress.",
   );
   const [dueDate, setDueDate] = useState("");
+  const [recurring, setRecurring] = useState(false);
+  const [frequency, setFrequency] = useState("quarterly");
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dueInDays, setDueInDays] = useState("7");
   const [purpose, setPurpose] = useState("growth");
   const [visibility, setVisibility] = useState("private");
   const [viewerIds, setViewerIds] = useState([]);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [notice, setNotice] = useState(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -636,17 +659,23 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     setTemplateId(String(replacementRequest.templateId));
     setPurpose(replacementRequest.rawPurpose || "growth");
     setDueDate("");
+    setRecurring(false);
     setViewerIds([]);
     setVisibility("private");
     setMessage(`Replacement request after ${replacementRequest.giverName} declined.`);
     setNotice(null);
+    setShowMoreOptions(false);
   }, [replacementRequest]);
 
   async function submit(event) {
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId) return;
-    if (dueDate && dueDate < today) {
+    if (!recurring && dueDate && dueDate < today) {
       setNotice("Due date cannot be in the past.");
+      return;
+    }
+    if (recurring && startDate < today) {
+      setNotice("First request date cannot be in the past.");
       return;
     }
     if (visibility === "mentor_lead" && viewerIds.length !== 1) {
@@ -662,10 +691,14 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
       receiverId: Number(receiverId),
       templateId: Number(templateId),
       message,
-      dueDate,
+      dueDate: recurring ? undefined : dueDate,
       purpose,
       visibility,
       viewerIds,
+      recurring,
+      frequency: recurring ? frequency : undefined,
+      startDate: recurring ? startDate : undefined,
+      dueInDays: recurring ? Number(dueInDays) : undefined,
     });
     if (result.ok) {
       onClose();
@@ -680,6 +713,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
         <div>
           <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">{replacementRequest ? "Replacement request" : "New request"}</p>
           <h2 className="text-3xl font-bold tracking-tight text-[#111827]">{replacementRequest ? `Ask ${replacementRequest.alternateGiverName}` : "Request feedback"}</h2>
+          <p className="mt-2 text-sm text-muted">Sending as {currentUser.name}</p>
         </div>
         <button className="rounded-lg p-2 text-muted transition hover:bg-slate-100 hover:text-ink" type="button" aria-label="Close request form" onClick={onClose}>
           ×
@@ -687,13 +721,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
       </div>
 
       <form className="grid gap-6" onSubmit={submit}>
-        <Field label="Request sent by">
-          <div className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-slate-50 px-4 text-base font-semibold text-slate-700">
-            <Avatar initials={initialsForName(currentUser.name)} small />
-            {currentUser.name}
-          </div>
-        </Field>
-
         <Field label="Feedback type">
           <SelectShell>
             <select className="w-full bg-transparent outline-none" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
@@ -702,17 +729,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
                   {template.name}
                 </option>
               ))}
-            </select>
-          </SelectShell>
-        </Field>
-
-        <Field label="Feedback purpose">
-          <SelectShell>
-            <select className="w-full bg-transparent outline-none" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
-              <option value="growth">Development and growth</option>
-              <option value="project_improvement">Project improvement</option>
-              <option value="one_on_one">One-on-one discussion</option>
-              <option value="appraisal">Official performance/appraisal record</option>
             </select>
           </SelectShell>
         </Field>
@@ -738,6 +754,22 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
             </select>
           </SelectShell>
           <p className="text-sm font-normal text-muted">This person can read and acknowledge submitted feedback.</p>
+        </Field>
+
+        <button className="flex items-center justify-between rounded-lg border border-dashed border-slate-300 px-4 py-3 text-left text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50" type="button" onClick={() => setShowMoreOptions((visible) => !visible)}>
+          <span>{showMoreOptions ? "Hide additional options" : "More options"}</span><span aria-hidden="true">{showMoreOptions ? "−" : "+"}</span>
+        </button>
+
+        {showMoreOptions ? <>
+        <Field label="Feedback purpose">
+          <SelectShell>
+            <select className="w-full bg-transparent outline-none" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+              <option value="growth">Development and growth</option>
+              <option value="project_improvement">Project improvement</option>
+              <option value="one_on_one">One-on-one discussion</option>
+              <option value="appraisal">Official performance/appraisal record</option>
+            </select>
+          </SelectShell>
         </Field>
 
         <Field label="Who can view feedback?">
@@ -793,12 +825,28 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
             <p className="text-sm font-normal text-muted">Selected people can read this request and its feedback, but cannot edit it.</p>
           </div>
         ) : null}
+        </> : null}
 
-        <Field label="Due date">
+        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input className="mt-1 h-4 w-4" type="checkbox" checked={recurring} disabled={Boolean(replacementRequest)} onChange={(event) => setRecurring(event.target.checked)} />
+            <span><span className="font-semibold text-slate-900">Repeat this feedback</span><span className="mt-1 block text-sm font-normal text-slate-600">Create future requests automatically for regular feedback.</span></span>
+          </label>
+          {recurring ? <div className="mt-4 grid gap-4 border-t border-violet-200 pt-4">
+            <Field label="Repeat frequency">
+              <SelectShell><select className="w-full bg-transparent outline-none" value={frequency} onChange={(event) => setFrequency(event.target.value)}><option value="monthly">Monthly</option><option value="quarterly">Every 3 months</option></select></SelectShell>
+            </Field>
+            <Field label="First request date"><input className={fieldClass} type="date" min={today} value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
+            <Field label="Give feedback within"><SelectShell><select className="w-full bg-transparent outline-none" value={dueInDays} onChange={(event) => setDueInDays(event.target.value)}><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option></select></SelectShell></Field>
+            <p className="text-sm font-normal text-violet-800">The giver gets a Mattermost notification on every scheduled request.</p>
+          </div> : null}
+        </div>
+
+        {!recurring ? <Field label="Due date">
           <input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-        </Field>
+        </Field> : null}
 
-        <Field label="Feedback request message (optional)">
+        {showMoreOptions ? <Field label="Feedback request message (optional)">
           <textarea
             className={`${fieldClass} min-h-48 resize-y leading-7`}
             value={message}
@@ -806,11 +854,11 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
             onChange={(event) => setMessage(event.target.value)}
           />
           <p className="text-sm font-normal text-muted">{message.length} / 500 characters</p>
-        </Field>
+        </Field> : null}
 
         <button className={`${primaryButton} mt-4 w-full py-4 text-lg`} type="submit">
           <Send size={22} />
-          Send Request
+          {recurring ? "Save recurring schedule" : "Send Request"}
         </button>
         {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">{notice}</p> : null}
       </form>

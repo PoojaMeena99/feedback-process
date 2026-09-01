@@ -54,3 +54,27 @@ export async function sendFeedbackSubmittedNotification(feedbackRequest) {
       `**View** to read the feedback.`,
   );
 }
+
+export async function sendFeedbackDueSoonNotification(feedbackRequest) {
+  const giverUsername = getMattermostUsername(feedbackRequest.giverName);
+  if (!giverUsername) {
+    return { sent: false, reason: "Feedback giver has no Mattermost username" };
+  }
+
+  return sendMattermostMessage(
+    `@${giverUsername}, reminder: **${feedbackRequest.templateName}** feedback for ` +
+      `**${feedbackRequest.receiverName}** is due tomorrow (${feedbackRequest.dueDate}).`,
+  );
+}
+
+export async function sendFeedbackOverdueNotification(feedbackRequest) {
+  const giverUsername = getMattermostUsername(feedbackRequest.giverName);
+  if (!giverUsername) {
+    return { sent: false, reason: "Feedback giver has no Mattermost username" };
+  }
+
+  return sendMattermostMessage(
+    `@${giverUsername}, **${feedbackRequest.templateName}** feedback for ` +
+      `**${feedbackRequest.receiverName}** is overdue (due ${feedbackRequest.dueDate}). Please submit it or contact the requester.`,
+  );
+}

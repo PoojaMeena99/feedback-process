@@ -1,5 +1,9 @@
 import { getDatabasePool } from "../db/connection.js";
-import { sendFeedbackRequestNotification } from "../integrations/mattermost.js";
+import {
+  sendFeedbackDueSoonNotification,
+  sendFeedbackOverdueNotification,
+  sendFeedbackRequestNotification,
+} from "../integrations/mattermost.js";
 import { ServiceError } from "./serviceError.js";
 
 const requestSelect = `
@@ -72,6 +76,48 @@ async function markOverdueRequests(pool) {
        AND due_date IS NOT NULL
        AND due_date < CURRENT_DATE()`,
   );
+}
+
+async function recordNotification(pool, requestId, notificationKey) {
+  try {
+    await pool.execute(
+      "INSERT INTO feedback_notification_log (request_id, notification_key) VALUES (?, ?)",
+      [requestId, notificationKey],
+    );
+    return true;
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") return false;
+    throw error;
+  }
+}
+
+/**
+ * Sends a single Mattermost reminder on the day before a request is due and a
+ * single alert when it becomes overdue. This is safe to call every hour.
+ */
+export async function sendScheduledFeedbackReminders() {
+  const pool = getDatabasePool();
+  await markOverdueRequests(pool);
+  const [requests] = await pool.execute(
+    `${requestSelect}
+     WHERE (request.status = 'requested' AND request.due_date = DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))
+        OR (request.status = 'overdue' AND request.due_date < CURRENT_DATE())`,
+  );
+
+  const result = { dueSoon: 0, overdue: 0 };
+  for (const feedbackRequest of requests) {
+    const isOverdue = feedbackRequest.status === "overdue";
+    const notificationKey = `${isOverdue ? "overdue" : "due-soon"}:${feedbackRequest.dueDate}`;
+    const notification = isOverdue
+      ? await sendFeedbackOverdueNotification(feedbackRequest)
+      : await sendFeedbackDueSoonNotification(feedbackRequest);
+
+    // Do not log a failed delivery, so the next scheduled run can retry it.
+    if (!notification.sent) continue;
+    const recorded = await recordNotification(pool, feedbackRequest.id, notificationKey);
+    if (recorded) result[isOverdue ? "overdue" : "dueSoon"] += 1;
+  }
+  return result;
 }
 
 export async function createFeedbackRequest({

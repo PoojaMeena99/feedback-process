@@ -272,6 +272,17 @@ CREATE TABLE IF NOT EXISTS feedback_discussions (
   FOREIGN KEY (author_id) REFERENCES users(id)
 );
 
+-- Keeps automated reminders idempotent: restarting the API must not send the
+-- same due-date reminder or overdue alert again.
+CREATE TABLE IF NOT EXISTS feedback_notification_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  notification_key VARCHAR(100) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_feedback_notification (request_id, notification_key),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

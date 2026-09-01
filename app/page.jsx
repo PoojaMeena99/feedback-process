@@ -213,6 +213,19 @@ export default function Home() {
     }
   }
 
+  async function createDiscussion(requestId, payload) {
+    try {
+      await api(`/feedback-requests/${requestId}/discussions`, { method: "POST", body: JSON.stringify(payload) });
+      await openRequest(requestId);
+      await loadRequests(currentUserId);
+      setError("");
+      return true;
+    } catch (discussionError) {
+      setError(discussionError.message);
+      return false;
+    }
+  }
+
   async function updateFollowUp(requestId, followUpId, payload) {
     try {
       await api(`/feedback-requests/${requestId}/follow-ups/${followUpId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -431,6 +444,7 @@ export default function Home() {
           onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
           onCreateFollowUp={() => setFollowUpRequest(selectedRequest)}
           onUpdateFollowUp={updateFollowUp}
+          onDiscussion={createDiscussion}
         />
       ) : null}
 
@@ -978,7 +992,7 @@ function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp }) {
+function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion }) {
   const template = request.template;
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
@@ -1070,6 +1084,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
               {request.alternateGiverName ? <p className="mt-2 font-semibold text-violet-800">Suggested reviewer: {request.alternateGiverName}</p> : null}
             </div>
           ) : null}
+          {feedbackWasShared ? <FeedbackConversation request={request} currentUserId={currentUserId} onDiscussion={onDiscussion} /> : null}
           {!canSubmit && !canAcknowledge && request.followUps?.length ? (
             <section className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
               <p className="font-semibold text-slate-900">Follow-up actions</p>
@@ -1109,6 +1124,73 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
         </form>
       </section>
     </div>
+  );
+}
+
+function FeedbackConversation({ request, currentUserId, onDiscussion }) {
+  const isReceiver = Number(currentUserId) === Number(request.receiverId);
+  const isGiver = Number(currentUserId) === Number(request.giverId);
+  const canDiscuss = ["submitted", "acknowledged"].includes(request.status);
+  const [type, setType] = useState("clarification");
+  const [message, setMessage] = useState("");
+  const [replyValues, setReplyValues] = useState({});
+  const [notice, setNotice] = useState("");
+  const discussions = request.discussions || [];
+  const openItems = discussions.filter((discussion) => !discussion.parentId && discussion.status === "open");
+
+  async function sendMessage() {
+    if (message.trim().length < 3) return setNotice("Please write at least 3 characters.");
+    const saved = await onDiscussion(request.id, { type, message });
+    if (saved) {
+      setMessage("");
+      setNotice("");
+    } else {
+      setNotice("Message could not be sent. Please try again.");
+    }
+  }
+
+  async function sendReply(parentId) {
+    const reply = replyValues[parentId] || "";
+    if (reply.trim().length < 3) return setNotice("Please write at least 3 characters.");
+    const saved = await onDiscussion(request.id, { type: "response", message: reply, parentId });
+    if (saved) {
+      setReplyValues((values) => ({ ...values, [parentId]: "" }));
+      setNotice("");
+    } else {
+      setNotice("Reply could not be sent. Please try again.");
+    }
+  }
+
+  if (!canDiscuss) return null;
+
+  return (
+    <section className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
+      <p className="font-semibold text-slate-900">Clarification and response</p>
+      <p className="mt-1 text-sm text-slate-600">Messages stay with this feedback record and must be resolved before the request can close.</p>
+
+      {isReceiver ? <div className="mt-4 grid gap-3">
+        <select className={fieldClass} value={type} onChange={(event) => setType(event.target.value)}>
+          <option value="clarification">Ask for clarification</option>
+          <option value="disagreement">Record a disagreement</option>
+          <option value="support">Request support</option>
+        </select>
+        <textarea className={`${fieldClass} min-h-24 resize-y`} value={message} maxLength={1000} placeholder="Write a clear, respectful question or response." onChange={(event) => setMessage(event.target.value)} />
+        <button className={`${secondaryButton} justify-self-start`} type="button" onClick={() => void sendMessage()}>Send message</button>
+      </div> : null}
+
+      {openItems.length ? <div className="mt-4 grid gap-3">
+        {openItems.map((discussion) => <article className="rounded-lg border border-sky-100 bg-white p-3" key={discussion.id}>
+          <p className="text-sm font-bold capitalize text-sky-800">{discussion.type}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-800">{discussion.authorName}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{discussion.message}</p>
+          {isGiver ? <div className="mt-3 grid gap-2">
+            <textarea className={`${fieldClass} min-h-20 resize-y`} value={replyValues[discussion.id] || ""} maxLength={1000} placeholder="Reply to this message" onChange={(event) => setReplyValues((values) => ({ ...values, [discussion.id]: event.target.value }))} />
+            <button className={`${primaryButton} justify-self-start`} type="button" onClick={() => void sendReply(discussion.id)}>Send reply</button>
+          </div> : <p className="mt-3 text-xs font-semibold text-amber-700">Waiting for the feedback giver’s reply.</p>}
+        </article>)}
+      </div> : discussions.length ? <p className="mt-4 text-sm font-medium text-emerald-700">All clarification messages have been answered.</p> : null}
+      {notice ? <p className="mt-3 text-sm font-medium text-red-700">{notice}</p> : null}
+    </section>
   );
 }
 
@@ -1152,6 +1234,22 @@ function FeedbackHistory({ request }) {
       });
     }
   });
+  (request.discussions || []).forEach((discussion) => {
+    const isReply = discussion.type === "response";
+    const labels = {
+      clarification: "Clarification requested",
+      disagreement: "Disagreement recorded",
+      support: "Support requested",
+      response: "Clarification answered",
+    };
+    history.push({
+      id: `discussion-${discussion.id}`,
+      title: labels[discussion.type] || "Feedback message",
+      description: `${discussion.authorName}: ${discussion.message}`,
+      time: discussion.createdAt,
+      tone: isReply ? "green" : discussion.status === "open" ? "orange" : undefined,
+    });
+  });
   if (request.status === "closed") {
     history.push({
       id: "closed",
@@ -1189,7 +1287,7 @@ function FeedbackHistory({ request }) {
           .sort((first, second) => new Date(first.time) - new Date(second.time))
           .map((item) => (
             <li className="relative" key={item.id}>
-              <span className={`absolute -left-[1.95rem] top-1 h-4 w-4 rounded-full border-2 border-white ${item.tone === "red" ? "bg-red-500" : item.tone === "green" ? "bg-emerald-500" : "bg-blue-600"}`} />
+              <span className={`absolute -left-[1.95rem] top-1 h-4 w-4 rounded-full border-2 border-white ${item.tone === "red" ? "bg-red-500" : item.tone === "green" ? "bg-emerald-500" : item.tone === "orange" ? "bg-amber-500" : "bg-blue-600"}`} />
               <p className="font-semibold text-slate-900">{item.title}</p>
               <p className="mt-1 text-sm text-slate-600">{item.description}</p>
               <p className="mt-1 text-xs font-medium text-slate-500">{formatHistoryTime(item.time)}</p>

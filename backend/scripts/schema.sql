@@ -257,6 +257,21 @@ PREPARE add_acknowledged_at_column_statement FROM @add_acknowledged_at_column;
 EXECUTE add_acknowledged_at_column_statement;
 DEALLOCATE PREPARE add_acknowledged_at_column_statement;
 
+CREATE TABLE IF NOT EXISTS feedback_discussions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  parent_id INT NULL,
+  author_id INT NOT NULL,
+  type VARCHAR(30) NOT NULL,
+  message TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  resolved_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (parent_id) REFERENCES feedback_discussions(id),
+  FOREIGN KEY (author_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

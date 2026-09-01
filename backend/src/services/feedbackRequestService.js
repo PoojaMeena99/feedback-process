@@ -339,12 +339,91 @@ export async function getFeedbackRequestById(requestId) {
     [requestId],
   );
 
+  const [discussions] = await pool.execute(
+    `SELECT discussion.id, discussion.parent_id AS parentId,
+       discussion.author_id AS authorId, author.name AS authorName,
+       discussion.type, discussion.message, discussion.status,
+       discussion.resolved_at AS resolvedAt, discussion.created_at AS createdAt
+     FROM feedback_discussions AS discussion
+     JOIN users AS author ON author.id = discussion.author_id
+     WHERE discussion.request_id = ?
+     ORDER BY discussion.created_at ASC, discussion.id ASC`,
+    [requestId],
+  );
+
   return {
     ...request,
     viewers,
     answers,
     followUps,
+    discussions,
   };
+}
+
+export async function createFeedbackDiscussion({ requestId, actorId, type, message, parentId = null }) {
+  const normalizedMessage = typeof message === "string" ? message.trim() : "";
+  if (normalizedMessage.length < 3) throw new ServiceError(400, "Message must be at least 3 characters");
+  if (normalizedMessage.length > 1000) throw new ServiceError(400, "Message must be 1000 characters or less");
+
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[request]] = await connection.execute(
+      `SELECT requester_id AS requesterId, giver_id AS giverId, receiver_id AS receiverId, status
+       FROM feedback_requests WHERE id = ? FOR UPDATE`,
+      [requestId],
+    );
+    if (!request) throw new ServiceError(404, "Feedback request not found");
+    if (!["submitted", "acknowledged"].includes(request.status)) {
+      throw new ServiceError(409, "Clarification is available after feedback is submitted and before it is closed");
+    }
+
+    if (actorId === request.receiverId) {
+      if (parentId) throw new ServiceError(400, "Only the feedback giver can reply to a clarification");
+      if (!["clarification", "disagreement", "support"].includes(type)) {
+        throw new ServiceError(400, "type must be clarification, disagreement, or support");
+      }
+      await connection.execute(
+        `INSERT INTO feedback_discussions (request_id, author_id, type, message, status)
+         VALUES (?, ?, ?, ?, 'open')`,
+        [requestId, actorId, type, normalizedMessage],
+      );
+    } else if (actorId === request.giverId) {
+      if (type !== "response" || !parentId) {
+        throw new ServiceError(400, "A feedback giver must reply to an open clarification");
+      }
+      const [[parent]] = await connection.execute(
+        `SELECT id, author_id AS authorId, status
+         FROM feedback_discussions
+         WHERE id = ? AND request_id = ? AND parent_id IS NULL
+         FOR UPDATE`,
+        [parentId, requestId],
+      );
+      if (!parent || parent.authorId !== request.receiverId || parent.status !== "open") {
+        throw new ServiceError(409, "This clarification is no longer open for a reply");
+      }
+      await connection.execute(
+        `INSERT INTO feedback_discussions (request_id, parent_id, author_id, type, message, status)
+         VALUES (?, ?, ?, 'response', ?, 'resolved')`,
+        [requestId, parentId, actorId, normalizedMessage],
+      );
+      await connection.execute(
+        "UPDATE feedback_discussions SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [parentId],
+      );
+    } else {
+      throw new ServiceError(403, "Only the feedback receiver can ask for clarification and only the giver can reply");
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  return getFeedbackRequestById(requestId);
 }
 
 export async function createFollowUp({ requestId, actorId, details, ownerId, dueDate }) {
@@ -551,6 +630,15 @@ export async function performFeedbackRequestAction(
       );
       if (openFollowUp) {
         throw new ServiceError(409, "Complete the open follow-up action before closing this request");
+      }
+      const [[openDiscussion]] = await connection.execute(
+        `SELECT id FROM feedback_discussions
+         WHERE request_id = ? AND parent_id IS NULL AND status = 'open'
+         LIMIT 1`,
+        [requestId],
+      );
+      if (openDiscussion) {
+        throw new ServiceError(409, "Resolve the open clarification before closing this request");
       }
     }
 

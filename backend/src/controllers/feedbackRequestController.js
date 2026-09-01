@@ -13,6 +13,11 @@ import {
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
+import {
+  createFeedbackSchedule as createFeedbackScheduleInDatabase,
+  getFeedbackSchedules as getFeedbackSchedulesFromDatabase,
+  updateFeedbackScheduleStatus as updateFeedbackScheduleStatusInDatabase,
+} from "../services/feedbackScheduleService.js";
 
 const allowedActions = ["decline", "cancel", "acknowledge", "close"];
 
@@ -51,6 +56,35 @@ export async function createFeedbackRequest(req, res) {
       message: "Feedback request created",
       feedbackRequest,
     });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function createFeedbackSchedule(req, res) {
+  try {
+    const schedule = await createFeedbackScheduleInDatabase(req.body, req.auth.user.id);
+    return res.status(201).json({ message: "Recurring feedback schedule saved", schedule });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function getFeedbackSchedules(req, res) {
+  try {
+    const schedules = await getFeedbackSchedulesFromDatabase(req.auth.user.id);
+    return res.status(200).json({ schedules });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function updateFeedbackScheduleStatus(req, res) {
+  const scheduleId = parsePositiveInteger(req.params.scheduleId);
+  if (!scheduleId) return res.status(400).json({ message: "Schedule ID must be a positive integer" });
+  try {
+    const schedule = await updateFeedbackScheduleStatusInDatabase(scheduleId, req.auth.user.id, req.body.isActive);
+    return res.status(200).json({ message: "Recurring feedback schedule updated", schedule });
   } catch (error) {
     return respondWithError(res, error);
   }

@@ -1,12 +1,14 @@
 import { sendScheduledFeedbackReminders } from "../services/feedbackRequestService.js";
+import { runDueFeedbackSchedules } from "../services/feedbackScheduleService.js";
 
 const HOUR_IN_MILLISECONDS = 60 * 60 * 1000;
 
 async function runReminderCheck() {
   try {
+    const scheduledRequests = await runDueFeedbackSchedules();
     const result = await sendScheduledFeedbackReminders();
-    if (result.dueSoon || result.overdue) {
-      console.log(`Feedback reminders sent — due soon: ${result.dueSoon}, overdue: ${result.overdue}`);
+    if (scheduledRequests || result.dueSoon || result.overdue) {
+      console.log(`Feedback automation — scheduled requests: ${scheduledRequests}, due soon: ${result.dueSoon}, overdue: ${result.overdue}`);
     }
   } catch (error) {
     console.error("Feedback reminder check failed:", error.message);

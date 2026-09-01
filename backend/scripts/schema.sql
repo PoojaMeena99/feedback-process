@@ -283,6 +283,36 @@ CREATE TABLE IF NOT EXISTS feedback_notification_log (
   FOREIGN KEY (request_id) REFERENCES feedback_requests(id)
 );
 
+CREATE TABLE IF NOT EXISTS feedback_request_schedules (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  requester_id INT NOT NULL,
+  giver_id INT NOT NULL,
+  receiver_id INT NOT NULL,
+  template_id INT NOT NULL,
+  message TEXT NULL,
+  purpose VARCHAR(40) NULL,
+  visibility VARCHAR(30) NOT NULL DEFAULT 'private',
+  frequency VARCHAR(20) NOT NULL,
+  due_in_days INT NOT NULL DEFAULT 7,
+  next_run_date DATE NOT NULL,
+  end_date DATE NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (requester_id) REFERENCES users(id),
+  FOREIGN KEY (giver_id) REFERENCES users(id),
+  FOREIGN KEY (receiver_id) REFERENCES users(id),
+  FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_schedule_viewers (
+  schedule_id INT NOT NULL,
+  user_id INT NOT NULL,
+  PRIMARY KEY (schedule_id, user_id),
+  FOREIGN KEY (schedule_id) REFERENCES feedback_request_schedules(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

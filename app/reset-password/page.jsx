@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { LockKeyhole, MessageCircle } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, MessageCircle } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 function ResetForm() {
+  const router = useRouter();
   const token = useSearchParams().get("token") || "";
   const [form, setForm] = useState({ newPassword: "", confirmPassword: "" });
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(false);
@@ -25,6 +26,7 @@ function ResetForm() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Could not reset password");
       setMessage(data.message); setForm({ newPassword: "", confirmPassword: "" });
+      router.replace("/login");
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
   }
@@ -44,6 +46,25 @@ function ResetForm() {
   </section>;
 }
 
-function PasswordField({ id, label, onChange, value }) { return <label className="grid gap-2" htmlFor={id}><span className="text-sm font-semibold text-slate-800">{label}</span><span className="relative"><LockKeyhole className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input autoComplete="new-password" className="min-h-12 w-full rounded-xl border border-slate-300 px-4 pl-11 outline-none focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100" id={id} name={id} onChange={onChange} placeholder="Minimum 8 characters" required type="password" value={value} /></span></label>; }
+function PasswordField({ id, label, onChange, value }) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return <div className="grid gap-2">
+    <label className="text-sm font-semibold text-slate-800" htmlFor={id}>{label}</label>
+    <div className="relative">
+      <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+      <input autoComplete="new-password" className="min-h-12 w-full rounded-xl border border-slate-300 px-4 pl-11 pr-12 outline-none focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100" id={id} name={id} onChange={onChange} placeholder="Minimum 8 characters" required type={showPassword ? "text" : "password"} value={value} />
+      <button
+        aria-label={`${showPassword ? "Hide" : "Show"} ${label.toLowerCase()}`}
+        aria-controls={id}
+        className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#252d70] focus:outline-none focus:ring-2 focus:ring-indigo-200"
+        onClick={() => setShowPassword((current) => !current)}
+        type="button"
+      >
+        {showPassword ? <EyeOff aria-hidden="true" size={19} /> : <Eye aria-hidden="true" size={19} />}
+      </button>
+    </div>
+  </div>;
+}
 
 export default function ResetPasswordPage() { return <main className="flex min-h-screen items-center justify-center bg-[#f5f7ff] px-4 py-8 text-slate-950"><div className="w-full max-w-md"><Link className="mx-auto mb-8 flex w-fit items-center gap-3" href="/login"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white"><MessageCircle size={21} /></span><span><b className="block text-lg text-[#252d70]">Feedback Hub</b><small className="text-slate-500">Feedback Process</small></span></Link><Suspense fallback={<p className="text-center">Loading reset form…</p>}><ResetForm /></Suspense></div></main>; }

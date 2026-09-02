@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   ArrowRight,
+  Eye,
+  EyeOff,
   MessageCircle,
 } from "lucide-react";
 
@@ -100,20 +102,35 @@ export default function RegisterPage() {
 }
 
 function AuthField({ autoComplete, id, label, onChange, placeholder, type, value }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const isPassword = type === "password";
   return (
-    <label className="grid gap-2" htmlFor={id}>
-      <span className="text-sm font-semibold text-slate-800">{label}</span>
+    <div className="grid gap-2">
+      <label className="text-sm font-semibold text-slate-800" htmlFor={id}>{label}</label>
+      <div className="relative">
       <input
         autoComplete={autoComplete}
-        className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100"
+        className={`min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100 ${isPassword ? "pr-12" : ""}`}
         id={id}
         name={id}
         onChange={onChange}
         placeholder={placeholder}
         required
-        type={type}
+        type={isPassword && showPassword ? "text" : type}
         value={value}
       />
-    </label>
+      {isPassword ? (
+        <button
+          aria-label={`${showPassword ? "Hide" : "Show"} ${label.toLowerCase()}`}
+          aria-controls={id}
+          className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#252d70] focus:outline-none focus:ring-2 focus:ring-indigo-200"
+          onClick={() => setShowPassword((current) => !current)}
+          type="button"
+        >
+          {showPassword ? <EyeOff aria-hidden="true" size={19} /> : <Eye aria-hidden="true" size={19} />}
+        </button>
+      ) : null}
+      </div>
+    </div>
   );
 }

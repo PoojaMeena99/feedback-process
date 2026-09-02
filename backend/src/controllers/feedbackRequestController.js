@@ -30,13 +30,15 @@ function parsePositiveInteger(value) {
 export async function createFeedbackRequest(req, res) {
   const requesterId = req.auth.user.id;
   const giverId = parsePositiveInteger(req.body.giverId);
-  const receiverId = parsePositiveInteger(req.body.receiverId);
   const templateId = parsePositiveInteger(req.body.templateId);
   const { message, dueDate, purpose, visibility, viewerIds } = req.body;
 
-  if (!giverId || !receiverId || !templateId) {
+  if (req.auth.user.role === "external") {
+    return res.status(403).json({ message: "External collaborators can only respond to feedback sent to them." });
+  }
+  if (!giverId || !templateId) {
     return res.status(400).json({
-      message: "giverId, receiverId and templateId must be positive integers",
+      message: "giverId and templateId must be positive integers",
     });
   }
 
@@ -44,7 +46,7 @@ export async function createFeedbackRequest(req, res) {
     const feedbackRequest = await createFeedbackRequestInDatabase({
       requesterId,
       giverId,
-      receiverId,
+      receiverId: requesterId,
       templateId,
       message,
       dueDate,
@@ -64,6 +66,8 @@ export async function createFeedbackRequest(req, res) {
 
 export async function createFeedbackSchedule(req, res) {
   try {
+    if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot create feedback schedules." });
+    req.body.receiverId = req.auth.user.id;
     const schedule = await createFeedbackScheduleInDatabase(req.body, req.auth.user.id);
     return res.status(201).json({ message: "Recurring feedback schedule saved", schedule });
   } catch (error) {
@@ -134,6 +138,7 @@ export async function getRequestsForRequester(req, res) {
   if (requesterId !== req.auth.user.id) {
     return res.status(403).json({ message: "You can only view feedback requests created by you" });
   }
+  if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot browse feedback history." });
 
   try {
     const feedbackRequests =
@@ -148,6 +153,7 @@ export async function getRequestsVisibleTo(req, res) {
   const viewerId = parsePositiveInteger(req.params.userId);
   if (!viewerId) return res.status(400).json({ message: "User ID must be a positive integer" });
   if (viewerId !== req.auth.user.id) return res.status(403).json({ message: "You can only view requests shared with you" });
+  if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot browse shared feedback." });
   try {
     const feedbackRequests = await getRequestsVisibleToFromDatabase(viewerId);
     return res.status(200).json({ feedbackRequests });

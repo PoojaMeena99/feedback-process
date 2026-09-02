@@ -56,8 +56,7 @@ export default function RegisterPage() {
       );
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Could not create account");
-
-      router.push("/login");
+      router.push("/login?verification=sent");
     } catch (submitError) {
       setError(submitError.message);
     } finally {

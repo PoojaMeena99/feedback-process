@@ -19,6 +19,7 @@ const requestSelect = `
     request.giver_id AS giverId,
     giver.name AS giverName,
     giver.email AS giverEmail,
+    giver.role AS giverRole,
     request.receiver_id AS receiverId,
     receiver.name AS receiverName,
     receiver.email AS receiverEmail,
@@ -58,13 +59,15 @@ async function notifyUser(payload) {
 
 async function requireUser(pool, userId, label) {
   const [[user]] = await pool.execute(
-    "SELECT id FROM users WHERE id = ?",
+    "SELECT id, role, is_active AS isActive FROM users WHERE id = ?",
     [userId],
   );
 
   if (!user) {
     throw new ServiceError(404, `${label} not found`);
   }
+  if (!user.isActive) throw new ServiceError(400, `${label} is inactive`);
+  return user;
 }
 
 async function requireTemplate(pool, templateId) {
@@ -119,6 +122,7 @@ export async function sendScheduledFeedbackReminders() {
 
   const result = { dueSoon: 0, dueToday: 0, overdue: 0 };
   for (const feedbackRequest of requests) {
+    if (feedbackRequest.giverRole === "external") continue;
     const isOverdue = feedbackRequest.status === "overdue";
     const isDueToday = !isOverdue && feedbackRequest.dueDate === new Date().toISOString().slice(0, 10);
     const notificationKind = isOverdue ? "overdue" : isDueToday ? "due-today" : "due-soon";
@@ -196,6 +200,8 @@ export async function createFeedbackRequest({
   visibility,
   viewerIds,
 }) {
+  // A person requests feedback about themselves: requester is always receiver.
+  receiverId = requesterId;
   if (requesterId === giverId) {
     throw new ServiceError(400, "You cannot request feedback from yourself");
   }
@@ -205,7 +211,8 @@ export async function createFeedbackRequest({
   const normalizedPurpose = normalizePurpose(purpose);
   const normalizedVisibility = normalizeVisibility(visibility);
   const normalizedViewerIds = normalizeViewerIds(viewerIds, requesterId, giverId, normalizedVisibility);
-  await requireUser(pool, requesterId, "Requester");
+  const requester = await requireUser(pool, requesterId, "Requester");
+  if (requester.role === "external") throw new ServiceError(403, "External collaborators cannot create feedback requests");
   await requireUser(pool, giverId, "Feedback giver");
   await requireUser(pool, receiverId, "Feedback receiver");
   for (const viewerId of normalizedViewerIds) {
@@ -220,7 +227,7 @@ export async function createFeedbackRequest({
        AND giver_id = ?
        AND receiver_id = ?
        AND template_id = ?
-       AND status = 'requested'
+       AND status IN ('requested', 'in_progress', 'overdue')
      LIMIT 1`,
     [requesterId, giverId, receiverId, templateId],
   );

@@ -39,10 +39,22 @@ export async function sendPasswordResetEmail({ email, name, resetUrl }) {
     text: `Hi ${name || "there"},\n\nUse this link to reset your password:\n${resetUrl}\n\nThis link expires in 15 minutes and can be used only once. If you did not request this, you can ignore this email.`,
     html: `
       <p>Hi ${name || "there"},</p>
-      <p>Use the link below to reset your Feedback Hub password:</p>
+      <p>Use the link below to reset your Feedback password:</p>
       <p><a href="${resetUrl}">Reset your password</a></p>
       <p>This link expires in 15 minutes and can be used only once.</p>
       <p>If you did not request this, you can ignore this email.</p>
     `,
+  });
+}
+
+export async function sendEmailVerificationEmail({ email, name, verificationUrl }) {
+  const configuration = getEmailConfiguration();
+  const transporter = createEmailTransporter(configuration);
+  await transporter.sendMail({
+    from: `Feedback <${configuration.from}>`,
+    to: email,
+    subject: "Verify your Feedback email address",
+    text: `Hi ${name || "there"},\n\nVerify your email to activate your Feedback account:\n${verificationUrl}\n\nThis link expires in 24 hours.`,
+    html: `<p>Hi ${name || "there"},</p><p>Verify your email to activate your Feedback account.</p><p><a href="${verificationUrl}">Verify email</a></p><p>This link expires in 24 hours.</p>`,
   });
 }

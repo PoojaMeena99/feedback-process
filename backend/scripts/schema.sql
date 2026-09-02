@@ -86,6 +86,27 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id CHAR(36) PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash VARCHAR(255) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+SET @add_email_verified_at_column = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL AFTER is_active',
+    'DO 0')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'email_verified_at'
+);
+PREPARE add_email_verified_at_column_statement FROM @add_email_verified_at_column;
+EXECUTE add_email_verified_at_column_statement;
+DEALLOCATE PREPARE add_email_verified_at_column_statement;
+
 CREATE TABLE IF NOT EXISTS feedback_templates (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,

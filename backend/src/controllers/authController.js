@@ -5,6 +5,7 @@ import {
   logoutUser,
   registerUser,
   resetUserPassword,
+  verifyEmail,
 } from "../services/authService.js";
 import { respondWithError } from "./respondWithError.js";
 
@@ -79,6 +80,13 @@ export async function resetPassword(req, res) {
   } catch (error) {
     return respondWithError(res, error);
   }
+}
+
+export async function verifyEmailAddress(req, res) {
+  try {
+    await verifyEmail(req.body);
+    return res.status(200).json({ message: "Email verified. You can now log in." });
+  } catch (error) { return respondWithError(res, error); }
 }
 
 export async function requireAuth(req, res, next) {

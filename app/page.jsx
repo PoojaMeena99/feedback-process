@@ -709,7 +709,6 @@ function StatCard({ icon, tone, label, value, helper }) {
 function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, replacementRequest, onCreate, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
-  const [receiverId, setReceiverId] = useState(String(currentUserId));
   const [templateId, setTemplateId] = useState("");
   const [message, setMessage] = useState(
     "Please share feedback for my learning progress.",
@@ -749,7 +748,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
   useEffect(() => {
     if (!replacementRequest) return;
     setGiverId(String(replacementRequest.alternateGiverId));
-    setReceiverId(String(replacementRequest.receiverId));
     setTemplateId(String(replacementRequest.templateId));
     setPurpose(replacementRequest.rawPurpose || "growth");
     setDueDate("");
@@ -782,7 +780,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     }
     const result = await onCreate({
       giverId: Number(giverId),
-      receiverId: Number(receiverId),
       templateId: Number(templateId),
       message,
       dueDate: recurring ? undefined : dueDate,
@@ -841,14 +838,9 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
           <p className="text-sm font-normal text-muted">This person will receive the request and fill the feedback form.</p>
         </Field>
 
-        <Field label="Who will receive feedback?">
-          <SelectShell>
-            <select className="w-full bg-transparent outline-none" value={receiverId} onChange={(event) => setReceiverId(event.target.value)}>
-              {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
-            </select>
-          </SelectShell>
-          <p className="text-sm font-normal text-muted">This person can read and acknowledge submitted feedback.</p>
-        </Field>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <span className="font-semibold">You will receive this feedback.</span> It is automatically linked to your account.
+        </div>
 
         <button className="flex items-center justify-between rounded-lg border border-dashed border-slate-300 px-4 py-3 text-left text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50" type="button" onClick={() => setShowMoreOptions((visible) => !visible)}>
           <span>{showMoreOptions ? "Hide additional options" : "More options"}</span><span aria-hidden="true">{showMoreOptions ? "−" : "+"}</span>

@@ -277,6 +277,17 @@ export default function Home() {
     }
   }
 
+  async function reportFeedback(requestId, payload) {
+    try {
+      await api(`/feedback-requests/${requestId}/reports`, { method: "POST", body: JSON.stringify(payload) });
+      setError("");
+      return { ok: true };
+    } catch (reportError) {
+      setError(reportError.message);
+      return { ok: false, message: reportError.message };
+    }
+  }
+
   async function updateFollowUp(requestId, followUpId, payload) {
     try {
       await api(`/feedback-requests/${requestId}/follow-ups/${followUpId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -497,6 +508,7 @@ export default function Home() {
           onCreateFollowUp={() => setFollowUpRequest(selectedRequest)}
           onUpdateFollowUp={updateFollowUp}
           onDiscussion={createDiscussion}
+          onReport={reportFeedback}
         />
       ) : null}
 
@@ -1080,7 +1092,7 @@ function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion }) {
+function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion, onReport }) {
   const template = request.template;
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
@@ -1099,6 +1111,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
         : `Your feedback will be shared with ${request.requesterName}.`;
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
+  const [isReportOpen, setIsReportOpen] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
@@ -1124,6 +1137,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             </h2>
             <p className="mt-2 text-sm text-slate-600">Share clear, kind, and actionable feedback.</p>
           </div>
+          {feedbackWasShared ? <button className="shrink-0 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50" type="button" onClick={() => setIsReportOpen(true)}>Report feedback</button> : null}
         </div>
 
         <form className="grid gap-5 p-6 sm:p-8" onSubmit={submit}>
@@ -1211,6 +1225,49 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
           </div>
         </form>
       </section>
+      {isReportOpen ? <ReportFeedbackModal request={request} onClose={() => setIsReportOpen(false)} onReport={onReport} /> : null}
+    </div>
+  );
+}
+
+function ReportFeedbackModal({ request, onClose, onReport }) {
+  const [reason, setReason] = useState("rude");
+  const [details, setDetails] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submitReport(event) {
+    event.preventDefault();
+    setIsSaving(true);
+    const result = await onReport(request.id, { reason, details });
+    setIsSaving(false);
+    if (result.ok) setNotice("Your report was sent privately to the SC Team for review.");
+    else setNotice(result.message || "Your report could not be sent.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onSubmit={submitReport}>
+        <p className="text-lg font-bold text-slate-950">Report feedback</p>
+        <p className="mt-2 text-sm text-slate-600">Use this only for harmful, abusive, discriminatory, or inappropriate feedback. Your report is private.</p>
+        <label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800">Reason
+          <select className={fieldClass} value={reason} onChange={(event) => setReason(event.target.value)}>
+            <option value="rude">Rude or disrespectful</option>
+            <option value="harassment">Harassment or bullying</option>
+            <option value="discrimination">Discrimination</option>
+            <option value="inappropriate">Inappropriate content</option>
+            <option value="other">Other concern</option>
+          </select>
+        </label>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-800">What happened? <span className="font-normal text-slate-500">(optional)</span>
+          <textarea className={`${fieldClass} min-h-28 resize-y`} value={details} maxLength={1000} placeholder="Add any context that could help the reviewer." onChange={(event) => setDetails(event.target.value)} />
+        </label>
+        {notice ? <p className={`mt-4 rounded-lg px-3 py-2 text-sm font-medium ${notice.startsWith("Your report was") ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{notice}</p> : null}
+        <div className="mt-5 flex justify-end gap-3">
+          <button className={secondaryButton} type="button" onClick={onClose}>Cancel</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-red-600 px-4 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSaving || Boolean(notice && notice.startsWith("Your report was"))}>{isSaving ? "Sending…" : "Send report"}</button>
+        </div>
+      </form>
     </div>
   );
 }

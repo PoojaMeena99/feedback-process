@@ -18,6 +18,7 @@ import {
   updateFollowUp,
 } from "../controllers/feedbackRequestController.js";
 import { requireAuth } from "../controllers/authController.js";
+import { reportFeedback } from "../controllers/feedbackReportController.js";
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.get("/receiver/:userId", getRequestsForReceiver);
 router.get("/requester/:userId", getRequestsForRequester);
 router.get("/visible/:userId", getRequestsVisibleTo);
 router.get("/:id", getFeedbackRequestById);
+router.post("/:id/reports", reportFeedback);
 router.patch("/:id/due-date", updateFeedbackRequestDueDate);
 router.post("/:id/discussions", createFeedbackDiscussion);
 router.post("/:id/follow-ups", createFollowUp);

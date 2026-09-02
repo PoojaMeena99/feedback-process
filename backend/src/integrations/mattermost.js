@@ -3,8 +3,7 @@ function getMattermostUsername(name) {
   return username ? username.replace(/[^a-zA-Z0-9._-]/g, "") : null;
 }
 
-async function sendMattermostMessage(text) {
-  const webhookUrl = process.env.MATTERMOST_WEBHOOK_URL;
+async function sendMattermostMessage(text, webhookUrl = process.env.MATTERMOST_WEBHOOK_URL) {
 
   if (!webhookUrl) {
     return { sent: false, reason: "MATTERMOST_WEBHOOK_URL is not configured" };
@@ -24,6 +23,28 @@ async function sendMattermostMessage(text) {
   }
 
   return { sent: true };
+}
+
+export async function sendFeedbackReportNotification(report) {
+  const webhookUrl = process.env.SC_MATTERMOST_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return { sent: false, reason: "SC_MATTERMOST_WEBHOOK_URL is not configured" };
+  }
+
+  const reasonLabels = {
+    rude: "Rude or disrespectful",
+    harassment: "Harassment or bullying",
+    discrimination: "Discrimination",
+    inappropriate: "Inappropriate content",
+    other: "Other concern",
+  };
+  return sendMattermostMessage(
+    `:warning: **Feedback safety report received**\n` +
+      `Report #${report.id} · Feedback request #${report.requestId}\n` +
+      `Reason: **${reasonLabels[report.reason] || report.reason}**\n` +
+      `Please review this privately in Feedback.`,
+    webhookUrl,
+  );
 }
 
 export async function sendFeedbackRequestNotification(feedbackRequest) {
@@ -50,7 +71,7 @@ export async function sendFeedbackSubmittedNotification(feedbackRequest) {
 
   return sendMattermostMessage(
     `@${requesterUsername}, **${feedbackRequest.giverName}** submitted your ` +
-      `**${feedbackRequest.templateName}**. Open Feedback Hub and select ` +
+      `**${feedbackRequest.templateName}**. Open Feedback and select ` +
       `**View** to read the feedback.`,
   );
 }

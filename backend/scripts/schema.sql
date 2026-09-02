@@ -327,6 +327,27 @@ CREATE TABLE IF NOT EXISTS user_notifications (
   INDEX user_notifications_inbox (user_id, is_read, created_at)
 );
 
+-- A private safety record. The feedback itself remains unchanged while an
+-- admin/HR reviewer investigates the report.
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  reporter_id INT NOT NULL,
+  reason VARCHAR(40) NOT NULL,
+  details TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  reviewed_by INT NULL,
+  reviewed_at TIMESTAMP NULL,
+  resolution_note TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_feedback_reporter (request_id, reporter_id),
+  INDEX feedback_reports_review_queue (status, created_at),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (reporter_id) REFERENCES users(id),
+  FOREIGN KEY (reviewed_by) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

@@ -2,6 +2,7 @@ import { getDatabasePool } from "../db/connection.js";
 import { sendFeedbackSubmittedNotification } from "../integrations/mattermost.js";
 import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
+import { createInAppNotification } from "./notificationService.js";
 
 function normalizeAnswers(answers, questions) {
   if (!Array.isArray(answers) || answers.length === 0) {
@@ -132,6 +133,15 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
   }
 
   const feedbackRequest = await getFeedbackRequestById(requestId);
+  const recipients = [...new Set([feedbackRequest.requesterId, feedbackRequest.receiverId])]
+    .filter((userId) => userId !== giverId);
+  await Promise.all(recipients.map((userId) => createInAppNotification({
+    userId,
+    requestId: feedbackRequest.id,
+    type: "feedback_submitted",
+    title: "Feedback received",
+    message: `${feedbackRequest.giverName} submitted ${feedbackRequest.templateName}.`,
+  })));
 
   try {
     const notification =

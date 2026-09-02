@@ -8,6 +8,7 @@ import authRouter from "./routes/authRoutes.js";
 import feedbackRequestRouter from "./routes/feedbackRequestRoutes.js";
 import templateRouter from "./routes/templateRoutes.js";
 import userRouter from "./routes/userRoutes.js";
+import notificationRouter from "./routes/notificationRoutes.js";
 import { startFeedbackReminderJob } from "./jobs/feedbackReminderJob.js";
 
 const app = express();
@@ -44,6 +45,7 @@ app.use(express.json());
 app.use("/health", healthRouter);
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
+app.use("/notifications", notificationRouter);
 app.use("/templates", templateRouter);
 app.use("/feedback-requests", feedbackRequestRouter);
 

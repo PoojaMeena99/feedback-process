@@ -313,6 +313,20 @@ CREATE TABLE IF NOT EXISTS feedback_schedule_viewers (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS user_notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  request_id INT NULL,
+  type VARCHAR(40) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  message TEXT NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  INDEX user_notifications_inbox (user_id, is_read, created_at)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

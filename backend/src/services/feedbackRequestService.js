@@ -5,6 +5,7 @@ import {
   sendFeedbackRequestNotification,
 } from "../integrations/mattermost.js";
 import { ServiceError } from "./serviceError.js";
+import { createInAppNotification } from "./notificationService.js";
 
 const requestSelect = `
   SELECT
@@ -43,6 +44,14 @@ const requestSelect = `
   LEFT JOIN users AS alternate_giver ON alternate_giver.id = request.alternate_giver_id
   JOIN feedback_templates AS template ON template.id = request.template_id
 `;
+
+async function notifyUser(payload) {
+  try {
+    await createInAppNotification(payload);
+  } catch (error) {
+    console.error("In-app notification failed:", error.message);
+  }
+}
 
 async function requireUser(pool, userId, label) {
   const [[user]] = await pool.execute(
@@ -115,7 +124,18 @@ export async function sendScheduledFeedbackReminders() {
     // Do not log a failed delivery, so the next scheduled run can retry it.
     if (!notification.sent) continue;
     const recorded = await recordNotification(pool, feedbackRequest.id, notificationKey);
-    if (recorded) result[isOverdue ? "overdue" : "dueSoon"] += 1;
+    if (recorded) {
+      await notifyUser({
+        userId: feedbackRequest.giverId,
+        requestId: feedbackRequest.id,
+        type: isOverdue ? "feedback_overdue" : "feedback_due_soon",
+        title: isOverdue ? "Feedback is overdue" : "Feedback due tomorrow",
+        message: isOverdue
+          ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is overdue.`
+          : `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due tomorrow.`,
+      });
+      result[isOverdue ? "overdue" : "dueSoon"] += 1;
+    }
   }
   return result;
 }
@@ -192,6 +212,13 @@ export async function createFeedbackRequest({
   }
 
   const feedbackRequest = await getFeedbackRequestById(result.insertId);
+  await notifyUser({
+    userId: feedbackRequest.giverId,
+    requestId: feedbackRequest.id,
+    type: "feedback_request",
+    title: "New feedback request",
+    message: `${feedbackRequest.requesterName} requested ${feedbackRequest.templateName} from you.`,
+  });
 
   try {
     const notification =
@@ -469,7 +496,18 @@ export async function createFeedbackDiscussion({ requestId, actorId, type, messa
     connection.release();
   }
 
-  return getFeedbackRequestById(requestId);
+  const feedbackRequest = await getFeedbackRequestById(requestId);
+  const isReply = actorId === feedbackRequest.giverId;
+  await notifyUser({
+    userId: isReply ? feedbackRequest.receiverId : feedbackRequest.giverId,
+    requestId: feedbackRequest.id,
+    type: isReply ? "feedback_reply" : "feedback_question",
+    title: isReply ? "Reply to your feedback question" : "New question about feedback",
+    message: isReply
+      ? `${feedbackRequest.giverName} replied to your question.`
+      : `${feedbackRequest.receiverName} asked a question about the feedback.`,
+  });
+  return feedbackRequest;
 }
 
 export async function createFollowUp({ requestId, actorId, details, ownerId, dueDate }) {
@@ -561,7 +599,23 @@ export async function updateFeedbackRequestStatus(requestId, status) {
     throw new ServiceError(404, "Feedback request not found");
   }
 
-  return getFeedbackRequestById(requestId);
+  const feedbackRequest = await getFeedbackRequestById(requestId);
+  const recipients = action === "acknowledge"
+    ? [feedbackRequest.giverId]
+    : action === "decline"
+      ? [feedbackRequest.requesterId]
+      : action === "cancel"
+        ? [feedbackRequest.giverId]
+        : [feedbackRequest.requesterId, feedbackRequest.giverId].filter((id) => id !== actorId);
+  const actionTitle = { acknowledge: "Feedback acknowledged", decline: "Feedback request declined", cancel: "Feedback request cancelled", close: "Feedback completed" }[action];
+  await Promise.all(recipients.map((userId) => notifyUser({
+    userId,
+    requestId: feedbackRequest.id,
+    type: `feedback_${action}`,
+    title: actionTitle,
+    message: action === "close" ? "This feedback process is complete." : `${feedbackRequest.templateName} feedback request was ${action}d.`,
+  })));
+  return feedbackRequest;
 }
 
 export async function updateFeedbackRequestDueDate(requestId, requesterId, dueDate) {

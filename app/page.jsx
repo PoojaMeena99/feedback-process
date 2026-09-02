@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
+  Bell,
   Home as HomeIcon,
   History as HistoryIcon,
   Inbox,
@@ -40,6 +41,7 @@ export default function Home() {
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
@@ -55,6 +57,7 @@ export default function Home() {
   const latestRequestLoad = useRef(0);
 
   const currentUser = users.find((user) => user.id === currentUserId);
+  const selectedRequestId = selectedRequest?.id;
   const pendingForMe = requests.filter(
     (request) => request.giverId === currentUserId && ["requested", "overdue"].includes(request.status),
   );
@@ -104,12 +107,13 @@ export default function Home() {
     latestRequestLoad.current = loadId;
 
     try {
-      const [received, receivedFeedback, sent, shared, scheduleData] = await Promise.all([
+      const [received, receivedFeedback, sent, shared, scheduleData, notificationData] = await Promise.all([
         api(`/feedback-requests/giver/${userId}`),
         api(`/feedback-requests/receiver/${userId}`),
         api(`/feedback-requests/requester/${userId}`),
         api(`/feedback-requests/visible/${userId}`),
         api("/feedback-requests/schedules"),
+        api("/notifications"),
       ]);
 
       // When the selected user changes quickly, ignore an older response.
@@ -125,6 +129,7 @@ export default function Home() {
       });
       setRequests(newestFirst);
       setSchedules(scheduleData.schedules);
+      setNotifications(notificationData.notifications);
       setError("");
     } catch (loadError) {
       if (loadId !== latestRequestLoad.current) return;
@@ -135,7 +140,22 @@ export default function Home() {
   useEffect(() => {
     if (!currentUserId) return undefined;
 
-    const refreshRequests = () => void loadRequests(currentUserId);
+    const refreshSelectedRequest = async () => {
+      if (!selectedRequestId) return;
+      try {
+        const [detail, template] = await Promise.all([
+          api(`/feedback-requests/${selectedRequestId}`),
+          api(`/templates/${selectedRequest?.templateId}/questions`),
+        ]);
+        setSelectedRequest({ ...detail.feedbackRequest, template });
+      } catch (detailError) {
+        if (detailError.status !== 401) setError(detailError.message);
+      }
+    };
+    const refreshRequests = () => {
+      void loadRequests(currentUserId);
+      void refreshSelectedRequest();
+    };
     refreshRequests();
     const intervalId = window.setInterval(refreshRequests, 3_000);
     window.addEventListener("focus", refreshRequests);
@@ -144,7 +164,7 @@ export default function Home() {
       window.clearInterval(intervalId);
       window.removeEventListener("focus", refreshRequests);
     };
-  }, [currentUserId, loadRequests]);
+  }, [currentUserId, loadRequests, selectedRequestId]);
 
   async function createRequest(payload) {
     try {
@@ -169,6 +189,20 @@ export default function Home() {
     } catch (scheduleError) {
       setError(scheduleError.message);
     }
+  }
+
+  async function markNotificationRead(notificationId) {
+    try {
+      await api(`/notifications/${notificationId}/read`, { method: "PATCH" });
+      setNotifications((items) => items.map((item) => item.id === notificationId ? { ...item, isRead: true } : item));
+    } catch (notificationError) { setError(notificationError.message); }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      await api("/notifications/read-all", { method: "PATCH" });
+      setNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
+    } catch (notificationError) { setError(notificationError.message); }
   }
 
   async function openRequest(requestId) {
@@ -294,7 +328,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
-      <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
+      <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} notifications={notifications} onNotificationRead={markNotificationRead} onReadAll={markAllNotificationsRead} onOpenRequest={(requestId) => void openRequest(requestId)} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
         <Sidebar activePage={activePage} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); }} />
@@ -513,7 +547,9 @@ export default function Home() {
   );
 }
 
-function AppHeader({ currentUser, onLogout, isLoggingOut }) {
+function AppHeader({ currentUser, onLogout, isLoggingOut, notifications, onNotificationRead, onReadAll, onOpenRequest }) {
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
   return (
     <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
@@ -528,6 +564,10 @@ function AppHeader({ currentUser, onLogout, isLoggingOut }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <button className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/25 text-white transition hover:bg-white/10" type="button" aria-label="Notifications" onClick={() => setIsNotificationsOpen((open) => !open)}><Bell size={19} />{unreadCount ? <span className="absolute -right-2 -top-2 min-w-5 rounded-full bg-red-500 px-1 text-xs font-bold leading-5 text-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}</button>
+            {isNotificationsOpen ? <div className="absolute right-0 z-30 mt-3 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><p className="font-bold">Notifications</p>{unreadCount ? <button className="text-sm font-semibold text-blue-700" type="button" onClick={() => void onReadAll()}>Mark all read</button> : null}</div><div className="max-h-96 overflow-y-auto">{notifications.length ? notifications.map((notification) => <button className={`block w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${notification.isRead ? "bg-white" : "bg-blue-50/70"}`} type="button" key={notification.id} onClick={() => { void onNotificationRead(notification.id); if (notification.requestId) { onOpenRequest(notification.requestId); setIsNotificationsOpen(false); } }}><p className="text-sm font-bold">{notification.title}</p><p className="mt-1 text-sm text-slate-600">{notification.message}</p><p className="mt-1 text-xs text-slate-400">{formatHistoryTime(notification.createdAt)}</p></button>) : <p className="px-4 py-8 text-center text-sm text-slate-500">No notifications yet.</p>}</div></div> : null}
+          </div>
           <div className="hidden items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white shadow-sm sm:flex">
             <Avatar initials={initialsForName(currentUser.name)} small />
             <span className="text-blue-100">Logged in as</span>
@@ -1209,12 +1249,14 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
     }
   }
 
-  if (!canDiscuss) return null;
+  // Keep the conversation visible after the feedback is closed. At that stage it
+  // becomes a read-only record, so people can revisit the context later.
+  if (!canDiscuss && !messages.length) return null;
 
   return (
     <section className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
       <p className="font-semibold text-slate-900">Questions about this feedback</p>
-      <p className="mt-1 text-sm text-slate-600">One conversation for this feedback. Open questions need a reply before the request can close.</p>
+      <p className="mt-1 text-sm text-slate-600">{canDiscuss ? "One conversation for this feedback. Open questions need a reply before the request can close." : "Saved conversation from this completed feedback process."}</p>
 
       {messages.length ? <div className="mt-4 space-y-3">
         {messages.map((discussion) => {
@@ -1228,17 +1270,17 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
         })}
       </div> : <p className="mt-4 rounded-lg border border-dashed border-sky-200 bg-white/70 px-4 py-3 text-sm text-slate-600">No questions yet.</p>}
 
-      {isReceiver ? <div className="mt-4 grid gap-3 border-t border-sky-100 pt-4">
+      {canDiscuss && isReceiver ? <div className="mt-4 grid gap-3 border-t border-sky-100 pt-4">
         <textarea className={`${fieldClass} min-h-24 resize-y`} value={message} maxLength={1000} placeholder="Ask a question about this feedback" onChange={(event) => setMessage(event.target.value)} />
         <button className={`${secondaryButton} justify-self-start`} type="button" onClick={() => void sendMessage()}>Send question</button>
       </div> : null}
 
-      {isGiver ? questions.filter((question) => question.status === "open").map((question) => <div className="mt-4 grid gap-2 border-t border-sky-100 pt-4" key={`reply-${question.id}`}>
+      {canDiscuss && isGiver ? questions.filter((question) => question.status === "open").map((question) => <div className="mt-4 grid gap-2 border-t border-sky-100 pt-4" key={`reply-${question.id}`}>
         <p className="text-sm font-semibold text-slate-800">Reply to {question.authorName}’s question</p>
         <textarea className={`${fieldClass} min-h-20 resize-y`} value={replyValues[question.id] || ""} maxLength={1000} placeholder="Write your reply" onChange={(event) => setReplyValues((values) => ({ ...values, [question.id]: event.target.value }))} />
         <button className={`${primaryButton} justify-self-start`} type="button" onClick={() => void sendReply(question.id)}>Send reply</button>
       </div>) : null}
-      {isReceiver && questions.some((question) => question.status === "open") ? <p className="mt-3 text-xs font-semibold text-amber-700">Waiting for the feedback giver’s reply.</p> : null}
+      {canDiscuss && isReceiver && questions.some((question) => question.status === "open") ? <p className="mt-3 text-xs font-semibold text-amber-700">Waiting for the feedback giver’s reply.</p> : null}
       {notice ? <p className="mt-3 text-sm font-medium text-red-700">{notice}</p> : null}
     </section>
   );

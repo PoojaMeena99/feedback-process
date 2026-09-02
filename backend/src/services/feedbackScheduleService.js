@@ -2,6 +2,7 @@ import { getDatabasePool } from "../db/connection.js";
 import { sendFeedbackRequestNotification } from "../integrations/mattermost.js";
 import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
+import { createInAppNotification } from "./notificationService.js";
 
 const allowedFrequencies = new Set(["monthly", "quarterly"]);
 const allowedPurposes = new Set(["growth", "project_improvement", "one_on_one", "appraisal"]);
@@ -187,6 +188,13 @@ export async function runDueFeedbackSchedules() {
     if (requestId) {
       try {
         const feedbackRequest = await getFeedbackRequestById(requestId);
+        await createInAppNotification({
+          userId: feedbackRequest.giverId,
+          requestId: feedbackRequest.id,
+          type: "scheduled_feedback_request",
+          title: "Scheduled feedback request",
+          message: `${feedbackRequest.requesterName} scheduled ${feedbackRequest.templateName} feedback from you.`,
+        });
         await sendFeedbackRequestNotification(feedbackRequest);
       } catch (error) {
         console.error("Scheduled feedback notification failed:", error.message);

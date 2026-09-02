@@ -1133,8 +1133,8 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   const isReceiver = Number(currentUserId) === Number(request.receiverId);
   const canSubmit = isGiver && ["requested", "in_progress", "overdue"].includes(request.status);
   const canAcknowledge = isReceiver && request.status === "submitted";
-  const canCreateFollowUp = (isRequester || isReceiver) && request.status === "acknowledged";
-  const feedbackWasShared = ["submitted", "acknowledged", "closed"].includes(request.status);
+  const canCreateFollowUp = (isRequester || isReceiver) && ["acknowledged", "follow_up_needed"].includes(request.status);
+  const feedbackWasShared = ["submitted", "acknowledged", "follow_up_needed", "closed"].includes(request.status);
   const wasStopped = ["cancelled", "declined"].includes(request.status);
   const footerMessage = request.status === "cancelled"
     ? "This feedback request was cancelled."
@@ -1549,7 +1549,7 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
     );
   }
 
-  if ((isRequester || isReceiver) && row.status === "acknowledged") {
+  if ((isRequester || isReceiver) && ["acknowledged", "follow_up_needed"].includes(row.status)) {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
@@ -1577,6 +1577,7 @@ function statusClass(status) {
   const base = "status-pill";
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
   if (status === "acknowledged") return `${base} bg-violet-100 text-violet-700`;
+  if (status === "follow_up_needed") return `${base} bg-amber-100 text-amber-800`;
   if (status === "closed") return `${base} bg-emerald-100 text-emerald-700`;
   if (status === "in_progress") return `${base} bg-cyan-100 text-cyan-800`;
   if (status === "overdue") return `${base} bg-amber-100 text-amber-800`;

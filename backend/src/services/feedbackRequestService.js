@@ -583,19 +583,26 @@ export async function createFollowUp({ requestId, actorId, details, ownerId, due
   );
   if (!request) throw new ServiceError(404, "Feedback request not found");
   if (![request.requesterId, request.receiverId].includes(actorId)) throw new ServiceError(403, "Only the requester or receiver can create a follow-up");
-  if (request.status !== "acknowledged") throw new ServiceError(409, "Follow-ups can be created after feedback is acknowledged");
+  if (!["acknowledged", "follow_up_needed"].includes(request.status)) throw new ServiceError(409, "Follow-ups can be created after feedback is acknowledged");
   if (!details?.trim()) throw new ServiceError(400, "Follow-up details are required");
   if (details.trim().length > 500) throw new ServiceError(400, "Follow-up details must be 500 characters or less");
   await requireUser(pool, ownerId, "Follow-up owner");
   if (![request.requesterId, request.giverId, request.receiverId].includes(ownerId)) {
     throw new ServiceError(400, "Follow-up owner must be part of this feedback request");
   }
-  const [result] = await pool.execute(
-    `INSERT INTO feedback_follow_ups (request_id, details, owner_id, due_date)
-     VALUES (?, ?, ?, ?)`,
-    [requestId, details.trim(), ownerId, normalizedDueDate],
-  );
-  await writeFeedbackAuditEvent({ requestId, actorId, eventType: "follow_up_created", details: details.trim() });
+  const connection = await pool.getConnection();
+  let result;
+  try {
+    await connection.beginTransaction();
+    [result] = await connection.execute(
+      `INSERT INTO feedback_follow_ups (request_id, details, owner_id, due_date)
+       VALUES (?, ?, ?, ?)`,
+      [requestId, details.trim(), ownerId, normalizedDueDate],
+    );
+    await connection.execute("UPDATE feedback_requests SET status = 'follow_up_needed' WHERE id = ?", [requestId]);
+    await writeFeedbackAuditEvent({ requestId, actorId, eventType: "follow_up_created", details: details.trim(), connection });
+    await connection.commit();
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
   if (ownerId !== actorId) {
     await notifyUser({
       userId: ownerId,
@@ -759,7 +766,7 @@ const lifecycleActions = {
   close: {
     actorColumn: "requester_or_receiver",
     actorLabel: "requester or feedback receiver",
-    from: "acknowledged",
+    from: ["acknowledged", "follow_up_needed"],
     to: "closed",
   },
 };

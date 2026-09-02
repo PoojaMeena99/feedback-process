@@ -42,6 +42,7 @@ export default function Home() {
   const [requests, setRequests] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [reports, setReports] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
@@ -57,9 +58,10 @@ export default function Home() {
   const latestRequestLoad = useRef(0);
 
   const currentUser = users.find((user) => user.id === currentUserId);
+  const isSCReviewer = ["sc", "admin", "hr"].includes(String(currentUser?.role || "").toLowerCase());
   const selectedRequestId = selectedRequest?.id;
   const pendingForMe = requests.filter(
-    (request) => request.giverId === currentUserId && ["requested", "overdue"].includes(request.status),
+    (request) => request.giverId === currentUserId && ["requested", "in_progress", "overdue"].includes(request.status),
   );
   const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
   const receivedFeedback = requests.filter((request) => request.receiverId === currentUserId && request.status === "submitted");
@@ -74,8 +76,8 @@ export default function Home() {
   });
   const statusOptions = activePage === "history"
     ? [["closed", "Done"], ["cancelled", "Cancelled"], ["declined", "Declined"]]
-    : [["requested", "Requested"], ["overdue", "Overdue"], ["submitted", "Submitted"], ["acknowledged", "Acknowledged"]];
-  const upcomingRequests = tableRows.filter((request) => ["requested", "overdue"].includes(request.status) && request.dueDate !== "Not selected").slice(0, 3);
+    : [["requested", "Requested"], ["in_progress", "In progress"], ["overdue", "Overdue"], ["submitted", "Submitted"], ["acknowledged", "Acknowledged"]];
+  const upcomingRequests = tableRows.filter((request) => ["requested", "in_progress", "overdue"].includes(request.status) && request.dueDate !== "Not selected").slice(0, 3);
 
   useEffect(() => {
     async function loadReferenceData() {
@@ -288,6 +290,21 @@ export default function Home() {
     }
   }
 
+  async function loadReports() {
+    try {
+      const reportData = await api("/feedback-reports");
+      setReports(reportData.reports);
+      setError("");
+    } catch (reportError) { setError(reportError.message); }
+  }
+
+  async function reviewReport(reportId, status) {
+    try {
+      await api(`/feedback-reports/${reportId}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await loadReports();
+    } catch (reportError) { setError(reportError.message); }
+  }
+
   async function updateFollowUp(requestId, followUpId, payload) {
     try {
       await api(`/feedback-requests/${requestId}/follow-ups/${followUpId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -342,7 +359,7 @@ export default function Home() {
       <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} notifications={notifications} onNotificationRead={markNotificationRead} onReadAll={markAllNotificationsRead} onOpenRequest={(requestId) => void openRequest(requestId)} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
-        <Sidebar activePage={activePage} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); }} />
+        <Sidebar activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); }} />
 
         <main className="border-x border-line/70 bg-white/45 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8">
           <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -351,8 +368,8 @@ export default function Home() {
                 <Sparkles size={15} />
                 Feedback workspace
               </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : "Feedback Requests"}</h1>
-              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : "Review, manage, and respond to every feedback request."}</p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : activePage === "reports" ? "SC Team Review" : "Feedback Requests"}</h1>
+              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : activePage === "reports" ? "Private reports that need SC Team review." : "Review, manage, and respond to every feedback request."}</p>
             </div>
           </div>
 
@@ -388,6 +405,8 @@ export default function Home() {
           </section>
           {schedules.length ? <section className="mt-5 rounded-2xl border border-line/80 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recurring feedback</p><h2 className="mt-1 text-xl font-bold text-slate-950">Your schedules</h2></div><span className="rounded-full bg-violet-50 px-3 py-1 text-sm font-semibold text-violet-700">{schedules.filter((schedule) => schedule.isActive).length} active</span></div><div className="mt-4 grid gap-3">{schedules.map((schedule) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3" key={schedule.id}><div><p className="font-semibold text-slate-900">{schedule.templateName} · {schedule.giverName} → {schedule.receiverName}</p><p className="mt-1 text-sm text-muted">{schedule.frequency === "quarterly" ? "Every 3 months" : "Monthly"} · Next request: {formatDueDate(schedule.nextRunDate)} · {schedule.dueInDays} days to respond</p></div><button className={secondaryButton} type="button" onClick={() => void setScheduleStatus(schedule.id, !schedule.isActive)}>{schedule.isActive ? "Pause" : "Resume"}</button></div>)}</div></section> : null}
           </> : null}
+
+          {activePage === "reports" && isSCReviewer ? <SCReportReview reports={reports} onReview={(reportId, status) => void reviewReport(reportId, status)} onOpenRequest={(requestId) => void openRequest(requestId)} /> : null}
 
           {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
@@ -611,7 +630,7 @@ function AppFooter() {
   );
 }
 
-function Sidebar({ activePage, onSelect }) {
+function Sidebar({ activePage, showSCReview, onSelect }) {
   return (
     <aside className="hidden border-r border-indigo-400/25 bg-[#252d70] px-4 py-8 text-slate-200 lg:flex lg:flex-col">
       <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.14em] text-indigo-200/70">Workspace</p>
@@ -619,9 +638,32 @@ function Sidebar({ activePage, onSelect }) {
         <SidebarItem active={activePage === "dashboard"} icon={<HomeIcon size={22} />} label="Dashboard" onClick={() => onSelect("dashboard")} />
         <SidebarItem active={activePage === "requests"} icon={<Inbox size={22} />} label="Feedback Requests" onClick={() => onSelect("requests")} />
         <SidebarItem active={activePage === "history"} icon={<HistoryIcon size={22} />} label="Feedback History" onClick={() => onSelect("history")} />
+        {showSCReview ? <SidebarItem active={activePage === "reports"} icon={<Inbox size={22} />} label="SC Team Review" onClick={() => onSelect("reports")} /> : null}
       </nav>
     </aside>
   );
+}
+
+function SCReportReview({ reports, onReview, onOpenRequest }) {
+  const openReports = reports.filter((report) => report.status === "open");
+  return (
+    <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
+        <div><p className="font-bold text-slate-950">Reported feedback</p><p className="mt-1 text-sm text-muted">Only SC Team reviewers can access this list.</p></div>
+        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{openReports.length} open</span>
+      </div>
+      <div className="divide-y divide-line">
+        {reports.length ? reports.map((report) => <article className="grid gap-4 px-6 py-5 sm:grid-cols-[1fr_auto]" key={report.id}>
+          <div><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">Report #{report.id}</p><span className={`rounded-full px-2 py-1 text-xs font-bold ${report.status === "open" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{report.status}</span></div><p className="mt-2 text-sm text-slate-700"><span className="font-semibold">Reason:</span> {reportReasonLabel(report.reason)}</p>{report.details ? <p className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{report.details}</p> : null}<p className="mt-3 text-xs text-muted">Reported by {report.reporterName} · {report.templateName} · {formatHistoryTime(report.createdAt)}</p></div>
+          <div className="flex flex-wrap content-start gap-2"><button className={secondaryButton} type="button" onClick={() => onOpenRequest(report.requestId)}>View feedback</button>{report.status === "open" ? <><button className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700" type="button" onClick={() => onReview(report.id, "resolved")}>Resolve</button><button className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" type="button" onClick={() => onReview(report.id, "dismissed")}>Dismiss</button></> : null}</div>
+        </article>) : <p className="px-6 py-12 text-center text-base text-muted">No feedback reports yet.</p>}
+      </div>
+    </section>
+  );
+}
+
+function reportReasonLabel(reason) {
+  return { rude: "Rude or disrespectful", harassment: "Harassment or bullying", discrimination: "Discrimination", inappropriate: "Inappropriate content", other: "Other concern" }[reason] || reason;
 }
 
 function SidebarItem({ active = false, icon, label, onClick }) {
@@ -1097,7 +1139,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
   const isReceiver = Number(currentUserId) === Number(request.receiverId);
-  const canSubmit = isGiver && ["requested", "overdue"].includes(request.status);
+  const canSubmit = isGiver && ["requested", "in_progress", "overdue"].includes(request.status);
   const canAcknowledge = isReceiver && request.status === "submitted";
   const canCreateFollowUp = (isRequester || isReceiver) && request.status === "acknowledged";
   const feedbackWasShared = ["submitted", "acknowledged", "closed"].includes(request.status);
@@ -1487,16 +1529,17 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
   const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
   const destructiveButtonClass = "rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50";
 
-  if (isGiver && ["requested", "overdue"].includes(row.status)) {
+  if (isGiver && ["requested", "in_progress", "overdue"].includes(row.status)) {
     return (
       <div className="flex gap-2">
+        {row.status !== "in_progress" ? <button className={buttonClass} type="button" onClick={() => onAction("start")}>Start</button> : null}
         <button className={buttonClass} type="button" onClick={onView}>Fill</button>
         <button className={destructiveButtonClass} type="button" onClick={() => onAction("decline")}>Decline</button>
       </div>
     );
   }
 
-  if (isRequester && ["requested", "overdue"].includes(row.status)) {
+  if (isRequester && ["requested", "in_progress", "overdue"].includes(row.status)) {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onEditDueDate}>Edit due date</button>
@@ -1543,6 +1586,7 @@ function statusClass(status) {
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
   if (status === "acknowledged") return `${base} bg-violet-100 text-violet-700`;
   if (status === "closed") return `${base} bg-emerald-100 text-emerald-700`;
+  if (status === "in_progress") return `${base} bg-cyan-100 text-cyan-800`;
   if (status === "overdue") return `${base} bg-amber-100 text-amber-800`;
   if (status === "declined" || status === "cancelled") return `${base} bg-red-100 text-red-700`;
   return `${base} bg-blue-50 text-blue-700`;

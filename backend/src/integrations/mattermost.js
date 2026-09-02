@@ -88,6 +88,31 @@ export async function sendFeedbackDueSoonNotification(feedbackRequest) {
   );
 }
 
+export async function sendFeedbackDueTodayNotification(feedbackRequest) {
+  const giverUsername = getMattermostUsername(feedbackRequest.giverName);
+  if (!giverUsername) {
+    return { sent: false, reason: "Feedback giver has no Mattermost username" };
+  }
+
+  return sendMattermostMessage(
+    `@${giverUsername}, reminder: **${feedbackRequest.templateName}** feedback for ` +
+      `**${feedbackRequest.receiverName}** is due today (${feedbackRequest.dueDate}).`,
+  );
+}
+
+export async function sendFeedbackDueDateChangedNotification(feedbackRequest) {
+  const giverUsername = getMattermostUsername(feedbackRequest.giverName);
+  if (!giverUsername) {
+    return { sent: false, reason: "Feedback giver has no Mattermost username" };
+  }
+
+  const deadline = feedbackRequest.dueDate || "no due date";
+  return sendMattermostMessage(
+    `@${giverUsername}, **${feedbackRequest.requesterName}** changed the deadline for ` +
+      `**${feedbackRequest.templateName}** feedback to **${deadline}**.`,
+  );
+}
+
 export async function sendFeedbackOverdueNotification(feedbackRequest) {
   const giverUsername = getMattermostUsername(feedbackRequest.giverName);
   if (!giverUsername) {

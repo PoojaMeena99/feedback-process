@@ -1,6 +1,7 @@
 import { getDatabasePool } from "../db/connection.js";
 import { sendFeedbackReportNotification } from "../integrations/mattermost.js";
 import { ServiceError } from "./serviceError.js";
+import { writeFeedbackAuditEvent } from "./feedbackAuditService.js";
 
 const reviewRoles = new Set(["admin", "hr", "sc"]);
 
@@ -32,6 +33,7 @@ export async function createFeedbackReport({ requestId, reporterId, reason, deta
       [requestId, reporterId, reason, details || null],
     );
     const report = { id: result.insertId, requestId, reason, details: details || null, status: "open" };
+    await writeFeedbackAuditEvent({ requestId, actorId: reporterId, eventType: "feedback_reported", details: reason });
     try {
       await sendFeedbackReportNotification(report);
     } catch (error) {
@@ -81,4 +83,6 @@ export async function reviewFeedbackReport({ reportId, reviewerId, status, resol
     [status, reviewerId, resolutionNote || null, reportId],
   );
   if (!result.affectedRows) throw new ServiceError(404, "Feedback report not found");
+  const [[report]] = await pool.execute("SELECT request_id AS requestId FROM feedback_reports WHERE id = ?", [reportId]);
+  await writeFeedbackAuditEvent({ requestId: report.requestId, actorId: reviewerId, eventType: `report_${status}` });
 }

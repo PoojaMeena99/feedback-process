@@ -19,7 +19,7 @@ import {
   updateFeedbackScheduleStatus as updateFeedbackScheduleStatusInDatabase,
 } from "../services/feedbackScheduleService.js";
 
-const allowedActions = ["decline", "cancel", "acknowledge", "close"];
+const allowedActions = ["start", "decline", "cancel", "acknowledge", "close"];
 
 function parsePositiveInteger(value) {
   const parsedValue = Number(value);
@@ -286,7 +286,7 @@ export async function performFeedbackRequestAction(req, res) {
 
   if (!allowedActions.includes(action)) {
     return res.status(400).json({
-      message: "action must be decline, cancel, acknowledge, or close",
+      message: "action must be start, decline, cancel, acknowledge, or close",
     });
   }
 

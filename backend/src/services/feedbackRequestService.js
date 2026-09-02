@@ -1,11 +1,14 @@
 import { getDatabasePool } from "../db/connection.js";
 import {
+  sendFeedbackDueDateChangedNotification,
+  sendFeedbackDueTodayNotification,
   sendFeedbackDueSoonNotification,
   sendFeedbackOverdueNotification,
   sendFeedbackRequestNotification,
 } from "../integrations/mattermost.js";
 import { ServiceError } from "./serviceError.js";
 import { createInAppNotification } from "./notificationService.js";
+import { writeFeedbackAuditEvent } from "./feedbackAuditService.js";
 
 const requestSelect = `
   SELECT
@@ -81,7 +84,7 @@ async function markOverdueRequests(pool) {
   await pool.execute(
     `UPDATE feedback_requests
      SET status = 'overdue'
-     WHERE status = 'requested'
+     WHERE status IN ('requested', 'in_progress')
        AND due_date IS NOT NULL
        AND due_date < CURRENT_DATE()`,
   );
@@ -101,25 +104,30 @@ async function recordNotification(pool, requestId, notificationKey) {
 }
 
 /**
- * Sends a single Mattermost reminder on the day before a request is due and a
- * single alert when it becomes overdue. This is safe to call every hour.
+ * Sends one reminder the day before and on the day a request is due, plus an
+ * overdue alert. The database log makes this safe to call every hour.
  */
 export async function sendScheduledFeedbackReminders() {
   const pool = getDatabasePool();
   await markOverdueRequests(pool);
   const [requests] = await pool.execute(
     `${requestSelect}
-     WHERE (request.status = 'requested' AND request.due_date = DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))
+     WHERE (request.status IN ('requested', 'in_progress') AND request.due_date = DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))
+        OR (request.status IN ('requested', 'in_progress') AND request.due_date = CURRENT_DATE())
         OR (request.status = 'overdue' AND request.due_date < CURRENT_DATE())`,
   );
 
-  const result = { dueSoon: 0, overdue: 0 };
+  const result = { dueSoon: 0, dueToday: 0, overdue: 0 };
   for (const feedbackRequest of requests) {
     const isOverdue = feedbackRequest.status === "overdue";
-    const notificationKey = `${isOverdue ? "overdue" : "due-soon"}:${feedbackRequest.dueDate}`;
+    const isDueToday = !isOverdue && feedbackRequest.dueDate === new Date().toISOString().slice(0, 10);
+    const notificationKind = isOverdue ? "overdue" : isDueToday ? "due-today" : "due-soon";
+    const notificationKey = `${notificationKind}:${feedbackRequest.dueDate}`;
     const notification = isOverdue
       ? await sendFeedbackOverdueNotification(feedbackRequest)
-      : await sendFeedbackDueSoonNotification(feedbackRequest);
+      : isDueToday
+        ? await sendFeedbackDueTodayNotification(feedbackRequest)
+        : await sendFeedbackDueSoonNotification(feedbackRequest);
 
     // Do not log a failed delivery, so the next scheduled run can retry it.
     if (!notification.sent) continue;
@@ -128,16 +136,53 @@ export async function sendScheduledFeedbackReminders() {
       await notifyUser({
         userId: feedbackRequest.giverId,
         requestId: feedbackRequest.id,
-        type: isOverdue ? "feedback_overdue" : "feedback_due_soon",
-        title: isOverdue ? "Feedback is overdue" : "Feedback due tomorrow",
+        type: isOverdue ? "feedback_overdue" : isDueToday ? "feedback_due_today" : "feedback_due_soon",
+        title: isOverdue ? "Feedback is overdue" : isDueToday ? "Feedback due today" : "Feedback due tomorrow",
         message: isOverdue
           ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is overdue.`
-          : `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due tomorrow.`,
+          : isDueToday
+            ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due today.`
+            : `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due tomorrow.`,
       });
-      result[isOverdue ? "overdue" : "dueSoon"] += 1;
+      result[isOverdue ? "overdue" : isDueToday ? "dueToday" : "dueSoon"] += 1;
     }
   }
   return result;
+}
+
+// Follow-up actions are part of a feedback request, so use the same durable
+// notification log. A reminder is created only once per follow-up and date.
+export async function sendScheduledFollowUpReminders() {
+  const pool = getDatabasePool();
+  const [followUps] = await pool.execute(
+    `SELECT follow_up.id, follow_up.request_id AS requestId, follow_up.owner_id AS ownerId,
+       follow_up.details, follow_up.due_date AS dueDate
+     FROM feedback_follow_ups AS follow_up
+     WHERE follow_up.status != 'completed'
+       AND follow_up.due_date IS NOT NULL
+       AND follow_up.due_date <= CURRENT_DATE()`,
+  );
+
+  let dueToday = 0;
+  let overdue = 0;
+  for (const followUp of followUps) {
+    const isOverdue = String(followUp.dueDate).slice(0, 10) < new Date().toISOString().slice(0, 10);
+    const notificationKey = `follow-up-${followUp.id}:${isOverdue ? "overdue" : "due-today"}:${followUp.dueDate}`;
+    const recorded = await recordNotification(pool, followUp.requestId, notificationKey);
+    if (!recorded) continue;
+    await notifyUser({
+      userId: followUp.ownerId,
+      requestId: followUp.requestId,
+      type: isOverdue ? "follow_up_overdue" : "follow_up_due_today",
+      title: isOverdue ? "Follow-up is overdue" : "Follow-up due today",
+      message: isOverdue
+        ? `Your follow-up action is overdue: ${followUp.details}`
+        : `Your follow-up action is due today: ${followUp.details}`,
+    });
+    if (isOverdue) overdue += 1;
+    else dueToday += 1;
+  }
+  return { dueToday, overdue };
 }
 
 export async function createFeedbackRequest({
@@ -203,6 +248,7 @@ export async function createFeedbackRequest({
         [result.insertId, viewerId],
       );
     }
+    await writeFeedbackAuditEvent({ requestId: result.insertId, actorId: requesterId, eventType: "request_created", connection });
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -424,12 +470,23 @@ export async function getFeedbackRequestById(requestId) {
     [requestId],
   );
 
+  const [auditLog] = await pool.execute(
+    `SELECT audit.id, audit.event_type AS eventType, audit.details,
+       audit.created_at AS createdAt, actor.name AS actorName
+     FROM feedback_audit_log AS audit
+     LEFT JOIN users AS actor ON actor.id = audit.actor_id
+     WHERE audit.request_id = ?
+     ORDER BY audit.created_at ASC, audit.id ASC`,
+    [requestId],
+  );
+
   return {
     ...request,
     viewers,
     answers,
     followUps,
     discussions,
+    auditLog,
   };
 }
 
@@ -531,6 +588,16 @@ export async function createFollowUp({ requestId, actorId, details, ownerId, due
      VALUES (?, ?, ?, ?)`,
     [requestId, details.trim(), ownerId, normalizedDueDate],
   );
+  await writeFeedbackAuditEvent({ requestId, actorId, eventType: "follow_up_created", details: details.trim() });
+  if (ownerId !== actorId) {
+    await notifyUser({
+      userId: ownerId,
+      requestId,
+      type: "follow_up_assigned",
+      title: "You have a follow-up action",
+      message: `Follow-up assigned: ${details.trim()}`,
+    });
+  }
   return getFollowUpById(result.insertId);
 }
 
@@ -561,6 +628,20 @@ export async function updateFollowUp({ followUpId, actorId, status, progressNote
      WHERE id = ?`,
     [status, progressNote?.trim() || null, status, followUpId],
   );
+  await writeFeedbackAuditEvent({
+    requestId: followUp.requestId,
+    actorId,
+    eventType: `follow_up_${status}`,
+    details: progressNote?.trim() || null,
+  });
+  const recipients = [followUp.ownerId, followUp.requesterId].filter((userId) => userId !== actorId);
+  await Promise.all([...new Set(recipients)].map((userId) => notifyUser({
+    userId,
+    requestId: followUp.requestId,
+    type: "follow_up_updated",
+    title: "Follow-up updated",
+    message: `A follow-up action is now ${status.replace("_", " ")}.`,
+  })));
   return getFollowUpById(followUpId);
 }
 
@@ -599,23 +680,7 @@ export async function updateFeedbackRequestStatus(requestId, status) {
     throw new ServiceError(404, "Feedback request not found");
   }
 
-  const feedbackRequest = await getFeedbackRequestById(requestId);
-  const recipients = action === "acknowledge"
-    ? [feedbackRequest.giverId]
-    : action === "decline"
-      ? [feedbackRequest.requesterId]
-      : action === "cancel"
-        ? [feedbackRequest.giverId]
-        : [feedbackRequest.requesterId, feedbackRequest.giverId].filter((id) => id !== actorId);
-  const actionTitle = { acknowledge: "Feedback acknowledged", decline: "Feedback request declined", cancel: "Feedback request cancelled", close: "Feedback completed" }[action];
-  await Promise.all(recipients.map((userId) => notifyUser({
-    userId,
-    requestId: feedbackRequest.id,
-    type: `feedback_${action}`,
-    title: actionTitle,
-    message: action === "close" ? "This feedback process is complete." : `${feedbackRequest.templateName} feedback request was ${action}d.`,
-  })));
-  return feedbackRequest;
+  return getFeedbackRequestById(requestId);
 }
 
 export async function updateFeedbackRequestDueDate(requestId, requesterId, dueDate) {
@@ -634,7 +699,7 @@ export async function updateFeedbackRequestDueDate(requestId, requesterId, dueDa
     throw new ServiceError(403, "Only the requester can change the due date");
   }
 
-  if (!["requested", "overdue"].includes(request.status)) {
+  if (!["requested", "in_progress", "overdue"].includes(request.status)) {
     throw new ServiceError(409, "Due date can only be changed before feedback is submitted");
   }
 
@@ -642,21 +707,40 @@ export async function updateFeedbackRequestDueDate(requestId, requesterId, dueDa
     "UPDATE feedback_requests SET due_date = ?, status = 'requested' WHERE id = ?",
     [normalizedDueDate, requestId],
   );
-
-  return getFeedbackRequestById(requestId);
+  const feedbackRequest = await getFeedbackRequestById(requestId);
+  await writeFeedbackAuditEvent({ requestId, actorId: requesterId, eventType: "due_date_changed", details: normalizedDueDate || "removed" });
+  await notifyUser({
+    userId: feedbackRequest.giverId,
+    requestId,
+    type: "feedback_due_date_changed",
+    title: "Feedback due date changed",
+    message: `${feedbackRequest.requesterName} changed the due date to ${normalizedDueDate || "no due date"}.`,
+  });
+  try {
+    await sendFeedbackDueDateChangedNotification(feedbackRequest);
+  } catch (error) {
+    console.error("Mattermost due-date notification failed:", error.message);
+  }
+  return feedbackRequest;
 }
 
 const lifecycleActions = {
-  decline: {
+  start: {
     actorColumn: "giver_id",
     actorLabel: "selected feedback giver",
     from: ["requested", "overdue"],
+    to: "in_progress",
+  },
+  decline: {
+    actorColumn: "giver_id",
+    actorLabel: "selected feedback giver",
+    from: ["requested", "in_progress", "overdue"],
     to: "declined",
   },
   cancel: {
     actorColumn: "requester_id",
     actorLabel: "requester",
-    from: ["requested", "overdue"],
+    from: ["requested", "in_progress", "overdue"],
     to: "cancelled",
   },
   acknowledge: {
@@ -773,6 +857,8 @@ export async function performFeedbackRequestAction(
       );
     }
 
+    await writeFeedbackAuditEvent({ requestId, actorId, eventType: action === "start" ? "feedback_started" : `request_${action}d`, details: action === "decline" ? declineReason : null, connection });
+
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -781,5 +867,23 @@ export async function performFeedbackRequestAction(
     connection.release();
   }
 
-  return getFeedbackRequestById(requestId);
+  const feedbackRequest = await getFeedbackRequestById(requestId);
+  const recipients = action === "start"
+    ? [feedbackRequest.requesterId, feedbackRequest.receiverId].filter((id) => id !== actorId)
+    : action === "acknowledge"
+      ? [feedbackRequest.giverId]
+      : action === "decline"
+        ? [feedbackRequest.requesterId]
+        : action === "cancel"
+          ? [feedbackRequest.giverId]
+          : [feedbackRequest.requesterId, feedbackRequest.giverId, feedbackRequest.receiverId].filter((id) => id !== actorId);
+  const actionTitle = { start: "Feedback started", acknowledge: "Feedback acknowledged", decline: "Feedback request declined", cancel: "Feedback request cancelled", close: "Feedback completed" }[action];
+  await Promise.all([...new Set(recipients)].map((userId) => notifyUser({
+    userId,
+    requestId: feedbackRequest.id,
+    type: `feedback_${action}`,
+    title: actionTitle,
+    message: action === "close" ? "This feedback process is complete." : action === "start" ? `${feedbackRequest.giverName} started preparing feedback.` : `${feedbackRequest.templateName} feedback request was ${action}d.`,
+  })));
+  return feedbackRequest;
 }

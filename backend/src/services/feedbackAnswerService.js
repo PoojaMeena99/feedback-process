@@ -3,6 +3,7 @@ import { sendFeedbackSubmittedNotification } from "../integrations/mattermost.js
 import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
 import { createInAppNotification } from "./notificationService.js";
+import { writeFeedbackAuditEvent } from "./feedbackAuditService.js";
 
 function normalizeAnswers(answers, questions) {
   if (!Array.isArray(answers) || answers.length === 0) {
@@ -62,10 +63,10 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
       );
     }
 
-    if (request.status !== "requested") {
+    if (!["requested", "in_progress", "overdue"].includes(request.status)) {
       throw new ServiceError(
         409,
-        "Only requested feedback can be submitted",
+        "Only an active feedback request can be submitted",
       );
     }
 
@@ -123,6 +124,7 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
        WHERE id = ?`,
       [requestId],
     );
+    await writeFeedbackAuditEvent({ requestId, actorId: giverId, eventType: "feedback_submitted", connection });
 
     await connection.commit();
   } catch (error) {

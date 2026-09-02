@@ -348,6 +348,18 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
   FOREIGN KEY (reviewed_by) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS feedback_audit_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  actor_id INT NULL,
+  event_type VARCHAR(60) NOT NULL,
+  details TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX feedback_audit_request (request_id, created_at),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (actor_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,

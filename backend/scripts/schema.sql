@@ -314,6 +314,7 @@ CREATE TABLE IF NOT EXISTS feedback_request_schedules (
   purpose VARCHAR(40) NULL,
   visibility VARCHAR(30) NOT NULL DEFAULT 'private',
   frequency VARCHAR(20) NOT NULL,
+  scheduled_time TIME NULL,
   due_in_days INT NOT NULL DEFAULT 7,
   next_run_date DATE NOT NULL,
   end_date DATE NULL,
@@ -325,6 +326,17 @@ CREATE TABLE IF NOT EXISTS feedback_request_schedules (
   FOREIGN KEY (receiver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
+
+SET @add_scheduled_time_column = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE feedback_request_schedules ADD COLUMN scheduled_time TIME NULL AFTER frequency',
+    'DO 0')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'feedback_request_schedules' AND column_name = 'scheduled_time'
+);
+PREPARE add_scheduled_time_column_statement FROM @add_scheduled_time_column;
+EXECUTE add_scheduled_time_column_statement;
+DEALLOCATE PREPARE add_scheduled_time_column_statement;
 
 CREATE TABLE IF NOT EXISTS feedback_schedule_viewers (
   schedule_id INT NOT NULL,

@@ -4,7 +4,7 @@ import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
 import { createInAppNotification } from "./notificationService.js";
 
-const allowedFrequencies = new Set(["monthly", "quarterly"]);
+const allowedFrequencies = new Set(["once", "monthly", "quarterly"]);
 const allowedPurposes = new Set(["growth", "project_improvement", "one_on_one", "appraisal"]);
 const allowedVisibilities = new Set(["private", "mentor_lead", "selected_group"]);
 
@@ -25,6 +25,7 @@ function normalizeDate(value, label, { allowEmpty = false } = {}) {
 }
 
 function nextDate(date, frequency) {
+  if (frequency === "once") return null;
   const [year, month, day] = date.split("-").map(Number);
   const result = new Date(Date.UTC(year, month - 1 + (frequency === "quarterly" ? 3 : 1), day));
   return result.toISOString().slice(0, 10);
@@ -36,6 +37,7 @@ function normalizeSchedule(payload, requesterId) {
   const templateId = Number(payload.templateId);
   const dueInDays = Number(payload.dueInDays);
   const frequency = payload.frequency;
+  const scheduledTime = payload.scheduledTime || null;
   const startDate = normalizeDate(payload.startDate, "startDate");
   const endDate = normalizeDate(payload.endDate, "endDate", { allowEmpty: true });
   const viewerIds = Array.isArray(payload.viewerIds) ? [...new Set(payload.viewerIds.map(Number))] : [];
@@ -45,7 +47,9 @@ function normalizeSchedule(payload, requesterId) {
     throw new ServiceError(400, "giverId, receiverId and templateId must be positive integers");
   }
   if (giverId === requesterId) throw new ServiceError(400, "You cannot request feedback from yourself");
-  if (!allowedFrequencies.has(frequency)) throw new ServiceError(400, "frequency must be monthly or quarterly");
+  if (!allowedFrequencies.has(frequency)) throw new ServiceError(400, "frequency must be once, monthly, or quarterly");
+  if (scheduledTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduledTime)) throw new ServiceError(400, "scheduledTime must use HH:MM format");
+  if (frequency === "once" && !scheduledTime) throw new ServiceError(400, "Choose a time for a one-time scheduled request");
   if (!Number.isInteger(dueInDays) || dueInDays < 1 || dueInDays > 90) throw new ServiceError(400, "dueInDays must be between 1 and 90");
   if (startDate < today()) throw new ServiceError(400, "startDate cannot be in the past");
   if (endDate && endDate < startDate) throw new ServiceError(400, "endDate cannot be before startDate");
@@ -55,7 +59,7 @@ function normalizeSchedule(payload, requesterId) {
   if (visibility === "mentor_lead" && viewerIds.length !== 1) throw new ServiceError(400, "Select one mentor or lead viewer");
   if (visibility === "selected_group" && !viewerIds.length) throw new ServiceError(400, "Select at least one group viewer");
 
-  return { giverId, receiverId, templateId, dueInDays, frequency, startDate, endDate, viewerIds, visibility, purpose: payload.purpose || null, message: typeof payload.message === "string" ? payload.message.trim().slice(0, 500) : null };
+  return { giverId, receiverId, templateId, dueInDays, frequency, scheduledTime, startDate, endDate, viewerIds, visibility, purpose: payload.purpose || null, message: typeof payload.message === "string" ? payload.message.trim().slice(0, 500) : null };
 }
 
 async function requireExisting(pool, table, id, label) {
@@ -79,9 +83,9 @@ export async function createFeedbackSchedule(payload, requesterId) {
     await connection.beginTransaction();
     const [result] = await connection.execute(
       `INSERT INTO feedback_request_schedules
-       (requester_id, giver_id, receiver_id, template_id, message, purpose, visibility, frequency, due_in_days, next_run_date, end_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [requesterId, schedule.giverId, schedule.receiverId, schedule.templateId, schedule.message, schedule.purpose, schedule.visibility, schedule.frequency, schedule.dueInDays, schedule.startDate, schedule.endDate],
+       (requester_id, giver_id, receiver_id, template_id, message, purpose, visibility, frequency, scheduled_time, due_in_days, next_run_date, end_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [requesterId, schedule.giverId, schedule.receiverId, schedule.templateId, schedule.message, schedule.purpose, schedule.visibility, schedule.frequency, schedule.scheduledTime, schedule.dueInDays, schedule.startDate, schedule.endDate],
     );
     scheduleId = result.insertId;
     for (const viewerId of schedule.viewerIds) {
@@ -103,7 +107,7 @@ export async function createFeedbackSchedule(payload, requesterId) {
 export async function getFeedbackSchedules(requesterId) {
   const pool = getDatabasePool();
   const [schedules] = await pool.execute(
-    `SELECT schedule.id, schedule.frequency, schedule.due_in_days AS dueInDays,
+    `SELECT schedule.id, schedule.frequency, schedule.scheduled_time AS scheduledTime, schedule.due_in_days AS dueInDays,
        schedule.next_run_date AS nextRunDate, schedule.end_date AS endDate, schedule.is_active AS isActive,
        giver.name AS giverName, receiver.name AS receiverName, template.name AS templateName
      FROM feedback_request_schedules AS schedule
@@ -138,7 +142,7 @@ async function getFeedbackScheduleById(scheduleId, requesterId) {
 export async function runDueFeedbackSchedules() {
   const pool = getDatabasePool();
   const [dueSchedules] = await pool.execute(
-    "SELECT id FROM feedback_request_schedules WHERE is_active = TRUE AND next_run_date <= CURRENT_DATE() ORDER BY next_run_date, id",
+    "SELECT id FROM feedback_request_schedules WHERE is_active = TRUE AND (next_run_date < CURRENT_DATE() OR (next_run_date = CURRENT_DATE() AND (scheduled_time IS NULL OR scheduled_time <= CURRENT_TIME()))) ORDER BY next_run_date, id",
   );
   let created = 0;
 
@@ -151,7 +155,7 @@ export async function runDueFeedbackSchedules() {
         `SELECT * FROM feedback_request_schedules WHERE id = ? FOR UPDATE`,
         [id],
       );
-      if (!schedule || !schedule.is_active || schedule.next_run_date > today()) {
+      if (!schedule || !schedule.is_active || schedule.next_run_date > today() || (schedule.next_run_date === today() && schedule.scheduled_time && String(schedule.scheduled_time).slice(0, 5) > new Date().toTimeString().slice(0, 5))) {
         await connection.rollback();
         continue;
       }
@@ -172,11 +176,15 @@ export async function runDueFeedbackSchedules() {
         await connection.execute("INSERT INTO feedback_request_viewers (request_id, user_id) VALUES (?, ?)", [requestId, viewer.userId]);
       }
       const followingDate = nextDate(String(schedule.next_run_date).slice(0, 10), schedule.frequency);
-      const isFinished = schedule.end_date && followingDate > String(schedule.end_date).slice(0, 10);
-      await connection.execute(
-        "UPDATE feedback_request_schedules SET next_run_date = ?, is_active = ? WHERE id = ?",
-        [followingDate, !isFinished, id],
-      );
+      const isFinished = schedule.frequency === "once" || (schedule.end_date && followingDate > String(schedule.end_date).slice(0, 10));
+      if (isFinished) {
+        await connection.execute("UPDATE feedback_request_schedules SET is_active = FALSE WHERE id = ?", [id]);
+      } else {
+        await connection.execute(
+          "UPDATE feedback_request_schedules SET next_run_date = ?, is_active = TRUE WHERE id = ?",
+          [followingDate, id],
+        );
+      }
       await connection.commit();
       created += 1;
     } catch (error) {

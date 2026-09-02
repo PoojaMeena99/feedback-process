@@ -403,7 +403,7 @@ export default function Home() {
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-amber-600">Upcoming due dates</p><h2 className="mt-1 text-xl font-bold text-slate-950">Keep on track</h2><div className="mt-4 grid gap-2">{upcomingRequests.length ? upcomingRequests.map((request) => <div key={request.id} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold">{request.type}</span><span className="font-bold text-amber-700">{request.dueDate}</span></div>) : <p className="text-sm text-muted">No upcoming due dates.</p>}</div></article>
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recent activity</p><h2 className="mt-1 text-xl font-bold text-slate-950">Latest updates</h2><div className="mt-4 grid gap-2">{tableRows.slice(0, 3).map((request) => <button key={request.id} type="button" onClick={() => void openRequest(request.id)} className="rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-violet-50"><p className="font-semibold text-slate-800">{request.type}</p><p className="mt-1 text-muted">{request.status} · {request.giverName}</p></button>)}</div></article>
           </section>
-          {schedules.length ? <section className="mt-5 rounded-2xl border border-line/80 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recurring feedback</p><h2 className="mt-1 text-xl font-bold text-slate-950">Your schedules</h2></div><span className="rounded-full bg-violet-50 px-3 py-1 text-sm font-semibold text-violet-700">{schedules.filter((schedule) => schedule.isActive).length} active</span></div><div className="mt-4 grid gap-3">{schedules.map((schedule) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3" key={schedule.id}><div><p className="font-semibold text-slate-900">{schedule.templateName} · {schedule.giverName} → {schedule.receiverName}</p><p className="mt-1 text-sm text-muted">{schedule.frequency === "quarterly" ? "Every 3 months" : "Monthly"} · Next request: {formatDueDate(schedule.nextRunDate)} · {schedule.dueInDays} days to respond</p></div><button className={secondaryButton} type="button" onClick={() => void setScheduleStatus(schedule.id, !schedule.isActive)}>{schedule.isActive ? "Pause" : "Resume"}</button></div>)}</div></section> : null}
+          {schedules.length ? <section className="mt-5 rounded-2xl border border-line/80 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Scheduled feedback</p><h2 className="mt-1 text-xl font-bold text-slate-950">Your schedules</h2></div><span className="rounded-full bg-violet-50 px-3 py-1 text-sm font-semibold text-violet-700">{schedules.filter((schedule) => schedule.isActive).length} active</span></div><div className="mt-4 grid gap-3">{schedules.map((schedule) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3" key={schedule.id}><div><p className="font-semibold text-slate-900">{schedule.templateName} · {schedule.giverName} → {schedule.receiverName}</p><p className="mt-1 text-sm text-muted">{schedule.frequency === "once" ? `One time at ${schedule.scheduledTime || "scheduled time"}` : schedule.frequency === "quarterly" ? "Every 3 months" : "Monthly"} · Next request: {formatDueDate(schedule.nextRunDate)} · {schedule.dueInDays} days to respond</p></div><button className={secondaryButton} type="button" onClick={() => void setScheduleStatus(schedule.id, !schedule.isActive)}>{schedule.isActive ? "Pause" : "Resume"}</button></div>)}</div></section> : null}
           </> : null}
 
           {activePage === "reports" && isSCReviewer ? <SCReportReview reports={reports} onReview={(reportId, status) => void reviewReport(reportId, status)} onOpenRequest={(requestId) => void openRequest(requestId)} /> : null}
@@ -716,6 +716,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
   const [dueDate, setDueDate] = useState("");
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState("quarterly");
+  const [scheduledTime, setScheduledTime] = useState("09:00");
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueInDays, setDueInDays] = useState("7");
   const [purpose, setPurpose] = useState("growth");
@@ -788,6 +789,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
       viewerIds,
       recurring,
       frequency: recurring ? frequency : undefined,
+      scheduledTime: recurring ? scheduledTime : undefined,
       startDate: recurring ? startDate : undefined,
       dueInDays: recurring ? Number(dueInDays) : undefined,
     });
@@ -920,9 +922,10 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
           </label>
           {recurring ? <div className="mt-4 grid gap-4 border-t border-violet-200 pt-4">
             <Field label="Repeat frequency">
-              <SelectShell><select className="w-full bg-transparent outline-none" value={frequency} onChange={(event) => setFrequency(event.target.value)}><option value="monthly">Monthly</option><option value="quarterly">Every 3 months</option></select></SelectShell>
+              <SelectShell><select className="w-full bg-transparent outline-none" value={frequency} onChange={(event) => setFrequency(event.target.value)}><option value="once">One-time (date and time)</option><option value="monthly">Monthly</option><option value="quarterly">Every 3 months</option></select></SelectShell>
             </Field>
             <Field label="First request date"><input className={fieldClass} type="date" min={today} value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
+            {frequency === "once" ? <Field label="Send request at"><input className={fieldClass} type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} required /></Field> : null}
             <Field label="Give feedback within"><SelectShell><select className="w-full bg-transparent outline-none" value={dueInDays} onChange={(event) => setDueInDays(event.target.value)}><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option></select></SelectShell></Field>
             <p className="text-sm font-normal text-violet-800">The giver gets a Mattermost notification on every scheduled request.</p>
           </div> : null}
@@ -944,7 +947,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
 
         <button className={`${primaryButton} mt-4 w-full py-4 text-lg`} type="submit">
           <Send size={22} />
-          {recurring ? "Save recurring schedule" : "Send Request"}
+          {recurring ? (frequency === "once" ? "Schedule request" : "Save recurring schedule") : "Send Request"}
         </button>
         {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">{notice}</p> : null}
       </form>

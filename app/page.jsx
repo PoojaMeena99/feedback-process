@@ -209,7 +209,7 @@ export default function Home() {
 
   async function openRequest(requestId) {
     try {
-      const detail = await api(`/feedback-requests/${requestId}`);
+      const detail = await api(`/feedback-requests/${requestId}?recordView=true`);
       const template = await api(`/templates/${detail.feedbackRequest.templateId}/questions`);
       setSelectedRequest({ ...detail.feedbackRequest, template });
     } catch (requestError) {

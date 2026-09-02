@@ -13,6 +13,7 @@ import {
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
+import { writeFeedbackAuditEvent } from "../services/feedbackAuditService.js";
 import {
   createFeedbackSchedule as createFeedbackScheduleInDatabase,
   getFeedbackSchedules as getFeedbackSchedulesFromDatabase,
@@ -171,6 +172,11 @@ export async function getFeedbackRequestById(req, res) {
     const hasViewerAccess = feedbackRequest.viewers.some((viewer) => viewer.userId === req.auth.user.id);
     if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && feedbackRequest.receiverId !== req.auth.user.id && !hasViewerAccess) {
       return res.status(403).json({ message: "You do not have access to this feedback request" });
+    }
+    // The client marks only deliberate opens. Background refreshes must never
+    // create a noisy, misleading view history.
+    if (req.query.recordView === "true") {
+      await writeFeedbackAuditEvent({ requestId, actorId: req.auth.user.id, eventType: "feedback_viewed" });
     }
     return res.status(200).json({ feedbackRequest });
   } catch (error) {

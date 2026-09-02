@@ -117,7 +117,7 @@ export async function loginUser({ email, password }) {
 
   try {
     const [[user]] = await connection.execute(
-      `SELECT id, name, email, role, password_hash AS passwordHash
+      `SELECT id, name, email, role, is_active AS isActive, password_hash AS passwordHash
        FROM users
        WHERE email = ?`,
       [normalizedEmail],
@@ -125,6 +125,9 @@ export async function loginUser({ email, password }) {
 
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new ServiceError(401, "Email or password is incorrect");
+    }
+    if (!user.isActive) {
+      throw new ServiceError(403, "This account has been deactivated. Please contact the administrator.");
     }
 
     await connection.beginTransaction();
@@ -159,7 +162,7 @@ export async function authenticateToken(token) {
 
   const pool = getDatabasePool();
   const [[session]] = await pool.execute(
-    `SELECT user.id, user.name, user.email, user.role, session.id AS sessionId
+    `SELECT user.id, user.name, user.email, user.role, user.is_active AS isActive, session.id AS sessionId
      FROM auth_sessions AS session
      JOIN users AS user ON user.id = session.user_id
      WHERE session.id = ?
@@ -171,6 +174,9 @@ export async function authenticateToken(token) {
 
   if (!session) {
     throw new ServiceError(401, "Your session is no longer active");
+  }
+  if (!session.isActive) {
+    throw new ServiceError(403, "This account has been deactivated. Please contact the administrator.");
   }
 
   return { user: publicUser(session), sessionId: session.sessionId };

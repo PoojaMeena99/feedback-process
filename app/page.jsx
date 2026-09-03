@@ -117,6 +117,16 @@ export default function Home() {
     }
   }
 
+  async function createTemplate(payload) {
+    try {
+      const data = await api("/templates", { method: "POST", body: JSON.stringify(payload) });
+      setTemplates((currentTemplates) => [...currentTemplates, data.template]);
+      return { ok: true, template: data.template };
+    } catch (templateError) {
+      return { ok: false, message: templateError.message };
+    }
+  }
+
   async function openRequest(requestId) {
     try {
       const detail = await api(`/feedback-requests/${requestId}`);
@@ -323,6 +333,7 @@ export default function Home() {
             users={users}
             templates={templates}
             onCreate={createRequest}
+            onCreateTemplate={createTemplate}
             onClose={() => setIsCreateOpen(false)}
           />
         ) : null}
@@ -439,7 +450,7 @@ function StatCard({ icon, tone, label, value, helper }) {
   );
 }
 
-function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onCreate, onClose }) {
+function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onCreate, onCreateTemplate, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
@@ -447,7 +458,13 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     "Please share feedback for my learning progress.",
   );
   const [dueDate, setDueDate] = useState("");
+  const [isCustomTemplateOpen, setIsCustomTemplateOpen] = useState(false);
+  const [customTemplateName, setCustomTemplateName] = useState("");
+  const [customTemplateDescription, setCustomTemplateDescription] = useState("");
+  const [customQuestions, setCustomQuestions] = useState(["", "", ""]);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [noticeTone, setNoticeTone] = useState("error");
   const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
@@ -466,6 +483,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId) return;
     if (dueDate && dueDate < today) {
+      setNoticeTone("error");
       setNotice("Due date cannot be in the past.");
       return;
     }
@@ -474,7 +492,63 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       onClose();
       return;
     }
+    setNoticeTone("error");
     setNotice(result.message);
+  }
+
+  function updateCustomQuestion(index, value) {
+    setCustomQuestions((questions) => questions.map((question, questionIndex) => (
+      questionIndex === index ? value : question
+    )));
+  }
+
+  function addCustomQuestion() {
+    setCustomQuestions((questions) => [...questions, ""]);
+  }
+
+  function removeCustomQuestion(index) {
+    setCustomQuestions((questions) => questions.filter((_, questionIndex) => questionIndex !== index));
+  }
+
+  async function saveCustomTemplate() {
+    const questions = customQuestions.map((question) => question.trim()).filter(Boolean);
+
+    if (customTemplateName.trim().length < 3) {
+      setNoticeTone("error");
+      setNotice("Template name must contain at least 3 characters.");
+      return;
+    }
+
+    if (questions.length < 1) {
+      setNoticeTone("error");
+      setNotice("Add at least one question for the custom template.");
+      return;
+    }
+
+    setIsSavingTemplate(true);
+    setNotice(null);
+
+    const result = await onCreateTemplate({
+      name: customTemplateName,
+      description: customTemplateDescription,
+      questions,
+    });
+
+    setIsSavingTemplate(false);
+
+    if (!result.ok) {
+      setNoticeTone("error");
+      setNotice(result.message);
+      return;
+    }
+
+    setTemplateId(result.template.id);
+    setCustomTemplateName("");
+    setCustomTemplateDescription("");
+    setCustomQuestions(["", "", ""]);
+    setIsCustomTemplateOpen(false);
+    setNoticeTone("success");
+    setNotice("Custom template saved. It is now selected as the feedback type.");
   }
 
   return (
@@ -509,6 +583,94 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
           </SelectShell>
         </Field>
 
+        <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-base font-bold text-slate-900">Need a different feedback type?</p>
+              <p className="mt-1 text-sm text-muted">Create a custom template with your own questions.</p>
+            </div>
+            <button
+              className={secondaryButton}
+              type="button"
+              onClick={() => {
+                setIsCustomTemplateOpen((isOpen) => !isOpen);
+                setNotice(null);
+              }}
+            >
+              <Plus size={17} />
+              Custom
+            </button>
+          </div>
+
+          {isCustomTemplateOpen ? (
+            <div className="mt-5 grid gap-4">
+              <Field label="Custom feedback type name">
+                <input
+                  className={fieldClass}
+                  placeholder="Example: Peer Feedback"
+                  value={customTemplateName}
+                  onChange={(event) => setCustomTemplateName(event.target.value)}
+                />
+              </Field>
+
+              <Field label="Description (optional)">
+                <textarea
+                  className={`${fieldClass} min-h-24 resize-y leading-7`}
+                  placeholder="What is this template used for?"
+                  value={customTemplateDescription}
+                  onChange={(event) => setCustomTemplateDescription(event.target.value)}
+                />
+              </Field>
+
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-base font-medium text-[#1f2937]">Questions</p>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                    type="button"
+                    onClick={addCustomQuestion}
+                    disabled={customQuestions.length >= 10}
+                  >
+                    <Plus size={15} />
+                    Add question
+                  </button>
+                </div>
+
+                {customQuestions.map((question, index) => (
+                  <div key={`custom-question-${index}`} className="flex gap-2">
+                    <input
+                      className={fieldClass}
+                      placeholder={`Question ${index + 1}`}
+                      value={question}
+                      onChange={(event) => updateCustomQuestion(index, event.target.value)}
+                    />
+                    {customQuestions.length > 1 ? (
+                      <button
+                        className="min-h-12 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                        type="button"
+                        onClick={() => removeCustomQuestion(index)}
+                        aria-label={`Remove question ${index + 1}`}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+
+              <button
+                className={`${primaryButton} w-full py-3 text-base`}
+                type="button"
+                onClick={saveCustomTemplate}
+                disabled={isSavingTemplate}
+              >
+                <Check size={18} />
+                {isSavingTemplate ? "Saving template..." : "Save custom template"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+
         <Field label="Who will give feedback?">
           <SelectShell>
             <Avatar initials={initialsForName(possibleGivers.find((user) => user.id === Number(giverId))?.name)} small />
@@ -541,7 +703,17 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
           <Send size={22} />
           Send Request
         </button>
-        {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">{notice}</p> : null}
+        {notice ? (
+          <p
+            className={`rounded-lg border px-4 py-3 text-center text-sm font-medium ${
+              noticeTone === "success"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            {notice}
+          </p>
+        ) : null}
       </form>
     </aside>
   );

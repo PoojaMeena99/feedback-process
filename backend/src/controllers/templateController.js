@@ -1,4 +1,5 @@
 import {
+  createTemplate as createTemplateInDatabase,
   getAllTemplates,
   getTemplateQuestions as getTemplateQuestionsFromDatabase,
 } from "../services/templateService.js";
@@ -8,6 +9,15 @@ export async function getTemplates(_req, res) {
   try {
     const templates = await getAllTemplates();
     return res.status(200).json({ templates });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function createTemplate(req, res) {
+  try {
+    const template = await createTemplateInDatabase(req.body);
+    return res.status(201).json({ template });
   } catch (error) {
     return respondWithError(res, error);
   }
@@ -29,4 +39,3 @@ export async function getTemplateQuestions(req, res) {
     return respondWithError(res, error);
   }
 }
-

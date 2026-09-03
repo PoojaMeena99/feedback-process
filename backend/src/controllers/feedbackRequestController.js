@@ -20,7 +20,7 @@ import {
   updateFeedbackScheduleStatus as updateFeedbackScheduleStatusInDatabase,
 } from "../services/feedbackScheduleService.js";
 
-const allowedActions = ["start", "decline", "cancel", "acknowledge", "close"];
+const allowedActions = ["start", "decline", "cancel", "acknowledge", "close", "hide", "remove", "reopen"];
 
 function parsePositiveInteger(value) {
   const parsedValue = Number(value);
@@ -285,7 +285,7 @@ export async function updateFollowUp(req, res) {
 
 export async function performFeedbackRequestAction(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
-  const { action, acknowledgementComment, declineReason, alternateGiverId: submittedAlternateGiverId } = req.body;
+  const { action, acknowledgementComment, declineReason, moderationReason, alternateGiverId: submittedAlternateGiverId } = req.body;
   const alternateGiverId = submittedAlternateGiverId === undefined || submittedAlternateGiverId === null || submittedAlternateGiverId === ""
     ? null
     : parsePositiveInteger(submittedAlternateGiverId);
@@ -321,6 +321,9 @@ export async function performFeedbackRequestAction(req, res) {
   if (action === "decline" && declineReason?.trim().length < 3) {
     return res.status(400).json({ message: "Please provide a decline reason of at least 3 characters" });
   }
+  if (["hide", "remove", "reopen"].includes(action) && (!moderationReason || moderationReason.trim().length < 3)) {
+    return res.status(400).json({ message: "Please provide a reason of at least 3 characters" });
+  }
 
   if (declineReason && declineReason.trim().length > 500) {
     return res.status(400).json({ message: "Decline reason must be 500 characters or less" });
@@ -334,6 +337,7 @@ export async function performFeedbackRequestAction(req, res) {
       acknowledgementComment?.trim() || null,
       declineReason?.trim() || null,
       alternateGiverId,
+      moderationReason?.trim() || null,
     );
 
     return res.status(200).json({

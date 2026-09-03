@@ -135,6 +135,12 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   purpose VARCHAR(40) NULL,
   visibility VARCHAR(30) NOT NULL DEFAULT 'private',
   alternate_giver_id INT NULL,
+  hidden_at TIMESTAMP NULL,
+  hidden_by INT NULL,
+  hidden_reason TEXT NULL,
+  removed_at TIMESTAMP NULL,
+  removed_by INT NULL,
+  removed_reason TEXT NULL,
   status VARCHAR(30) DEFAULT 'requested',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -145,6 +151,12 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   FOREIGN KEY (alternate_giver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
+
+-- Moderation is a soft action: the original feedback is retained for audit.
+SET @add_hidden_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_at TIMESTAMP NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_at');
+PREPARE add_hidden_at_column_statement FROM @add_hidden_at_column; EXECUTE add_hidden_at_column_statement; DEALLOCATE PREPARE add_hidden_at_column_statement;
+SET @add_removed_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_at TIMESTAMP NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_at');
+PREPARE add_removed_at_column_statement FROM @add_removed_at_column; EXECUTE add_removed_at_column_statement; DEALLOCATE PREPARE add_removed_at_column_statement;
 
 SET @add_due_date_column = (
   SELECT IF(

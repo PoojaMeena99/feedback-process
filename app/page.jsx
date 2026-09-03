@@ -223,11 +223,11 @@ export default function Home() {
     await loadRequests(currentUserId);
   }
 
-  async function performRequestAction(requestId, action, acknowledgementComment, declineReason, alternateGiverId) {
+  async function performRequestAction(requestId, action, acknowledgementComment, declineReason, alternateGiverId, moderationReason) {
     try {
       await api(`/feedback-requests/${requestId}/actions`, {
         method: "POST",
-        body: JSON.stringify({ action, acknowledgementComment, declineReason, alternateGiverId }),
+        body: JSON.stringify({ action, acknowledgementComment, declineReason, alternateGiverId, moderationReason }),
       });
       await loadRequests(currentUserId);
       setError("");
@@ -521,6 +521,7 @@ export default function Home() {
         <FeedbackDetail
           request={selectedRequest}
           currentUserId={currentUserId}
+          currentUserRole={currentUser.role}
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
           onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
@@ -528,6 +529,7 @@ export default function Home() {
           onUpdateFollowUp={updateFollowUp}
           onDiscussion={createDiscussion}
           onReport={reportFeedback}
+          onModerate={(requestId, action, reason) => performRequestAction(requestId, action, undefined, undefined, undefined, reason)}
         />
       ) : null}
 
@@ -1129,7 +1131,7 @@ function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion, onReport }) {
+function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion, onReport, onModerate }) {
   const template = request.template;
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
@@ -1149,6 +1151,8 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isModerationOpen, setIsModerationOpen] = useState(false);
+  const canModerate = ["admin", "hr", "sc"].includes(String(currentUserRole).toLowerCase());
 
   async function submit(event) {
     event.preventDefault();
@@ -1174,7 +1178,10 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             </h2>
             <p className="mt-2 text-sm text-slate-600">Share clear, kind, and actionable feedback.</p>
           </div>
-          {feedbackWasShared ? <button className="shrink-0 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50" type="button" onClick={() => setIsReportOpen(true)}>Report feedback</button> : null}
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {canModerate ? <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" type="button" onClick={() => setIsModerationOpen(true)}>Record controls</button> : null}
+            {feedbackWasShared ? <button className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50" type="button" onClick={() => setIsReportOpen(true)}>Report feedback</button> : null}
+          </div>
         </div>
 
         <form className="grid gap-5 p-6 sm:p-8" onSubmit={submit}>
@@ -1263,6 +1270,49 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
         </form>
       </section>
       {isReportOpen ? <ReportFeedbackModal request={request} onClose={() => setIsReportOpen(false)} onReport={onReport} /> : null}
+      {isModerationOpen ? <ModerateFeedbackModal request={request} onClose={() => setIsModerationOpen(false)} onModerate={onModerate} /> : null}
+    </div>
+  );
+}
+
+function ModerateFeedbackModal({ request, onClose, onModerate }) {
+  const availableActions = request.status === "closed"
+    ? [{ value: "hide", label: "Hide from participant lists" }, { value: "remove", label: "Remove from participant lists" }, { value: "reopen", label: "Reopen completed feedback" }]
+    : [{ value: "hide", label: "Hide from participant lists" }, { value: "remove", label: "Remove from participant lists" }];
+  const [action, setAction] = useState(availableActions[0].value);
+  const [reason, setReason] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (reason.trim().length < 3) return setNotice("Please enter a reason of at least 3 characters.");
+    setIsSaving(true);
+    const wasSaved = await onModerate(request.id, action, reason.trim());
+    setIsSaving(false);
+    if (wasSaved) onClose();
+    else setNotice("The record control could not be saved. Please try again.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onSubmit={submit}>
+        <p className="text-lg font-bold text-slate-950">Record controls</p>
+        <p className="mt-2 text-sm text-slate-600">SC, HR, and admins can moderate this record. Every action and reason is kept in the audit trail.</p>
+        <label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800">Action
+          <select className={fieldClass} value={action} onChange={(event) => setAction(event.target.value)}>
+            {availableActions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-800">Reason
+          <textarea className={`${fieldClass} min-h-24 resize-y`} value={reason} maxLength={1000} placeholder="Explain why this action is needed." onChange={(event) => setReason(event.target.value)} required />
+        </label>
+        {notice ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{notice}</p> : null}
+        <div className="mt-5 flex justify-end gap-3">
+          <button className={secondaryButton} type="button" onClick={onClose}>Cancel</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-slate-900 px-4 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSaving}>{isSaving ? "Saving…" : "Save action"}</button>
+        </div>
+      </form>
     </div>
   );
 }

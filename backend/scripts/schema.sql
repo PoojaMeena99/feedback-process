@@ -157,6 +157,14 @@ SET @add_hidden_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_reque
 PREPARE add_hidden_at_column_statement FROM @add_hidden_at_column; EXECUTE add_hidden_at_column_statement; DEALLOCATE PREPARE add_hidden_at_column_statement;
 SET @add_removed_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_at TIMESTAMP NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_at');
 PREPARE add_removed_at_column_statement FROM @add_removed_at_column; EXECUTE add_removed_at_column_statement; DEALLOCATE PREPARE add_removed_at_column_statement;
+SET @add_hidden_by_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_by INT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_by');
+PREPARE add_hidden_by_column_statement FROM @add_hidden_by_column; EXECUTE add_hidden_by_column_statement; DEALLOCATE PREPARE add_hidden_by_column_statement;
+SET @add_hidden_reason_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_reason TEXT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_reason');
+PREPARE add_hidden_reason_column_statement FROM @add_hidden_reason_column; EXECUTE add_hidden_reason_column_statement; DEALLOCATE PREPARE add_hidden_reason_column_statement;
+SET @add_removed_by_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_by INT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_by');
+PREPARE add_removed_by_column_statement FROM @add_removed_by_column; EXECUTE add_removed_by_column_statement; DEALLOCATE PREPARE add_removed_by_column_statement;
+SET @add_removed_reason_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_reason TEXT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_reason');
+PREPARE add_removed_reason_column_statement FROM @add_removed_reason_column; EXECUTE add_removed_reason_column_statement; DEALLOCATE PREPARE add_removed_reason_column_statement;
 
 SET @add_due_date_column = (
   SELECT IF(

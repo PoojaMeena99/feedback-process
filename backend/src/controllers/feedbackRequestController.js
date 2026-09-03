@@ -176,7 +176,8 @@ export async function getFeedbackRequestById(req, res) {
       await getFeedbackRequestByIdFromDatabase(requestId);
 
     const hasViewerAccess = feedbackRequest.viewers.some((viewer) => viewer.userId === req.auth.user.id);
-    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && feedbackRequest.receiverId !== req.auth.user.id && !hasViewerAccess) {
+    const isModerator = ["admin", "hr", "sc"].includes(String(req.auth.user.role).toLowerCase());
+    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && feedbackRequest.receiverId !== req.auth.user.id && !hasViewerAccess && !isModerator) {
       return res.status(403).json({ message: "You do not have access to this feedback request" });
     }
     // The client marks only deliberate opens. Background refreshes must never

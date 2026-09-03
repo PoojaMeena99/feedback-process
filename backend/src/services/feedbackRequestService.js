@@ -357,6 +357,8 @@ export async function getRequestsForGiver(giverId) {
   const [requests] = await pool.execute(
     `${requestSelect}
      WHERE request.giver_id = ?
+       AND request.hidden_at IS NULL
+       AND request.removed_at IS NULL
      ORDER BY request.created_at DESC, request.id DESC`,
     [giverId],
   );
@@ -372,6 +374,8 @@ export async function getRequestsForRequester(requesterId) {
   const [requests] = await pool.execute(
     `${requestSelect}
      WHERE request.requester_id = ?
+       AND request.hidden_at IS NULL
+       AND request.removed_at IS NULL
      ORDER BY request.created_at DESC, request.id DESC`,
     [requesterId],
   );
@@ -384,7 +388,7 @@ export async function getRequestsForReceiver(receiverId) {
   await requireUser(pool, receiverId, "Feedback receiver");
   await markOverdueRequests(pool);
   const [requests] = await pool.execute(
-    `${requestSelect} WHERE request.receiver_id = ? ORDER BY request.created_at DESC, request.id DESC`,
+    `${requestSelect} WHERE request.receiver_id = ? AND request.hidden_at IS NULL AND request.removed_at IS NULL ORDER BY request.created_at DESC, request.id DESC`,
     [receiverId],
   );
   return requests;
@@ -398,6 +402,8 @@ export async function getRequestsVisibleTo(viewerId) {
     `${requestSelect}
      JOIN feedback_request_viewers AS viewer ON viewer.request_id = request.id
      WHERE viewer.user_id = ?
+       AND request.hidden_at IS NULL
+       AND request.removed_at IS NULL
      ORDER BY request.created_at DESC, request.id DESC`,
     [viewerId],
   );
@@ -782,7 +788,7 @@ export async function performFeedbackRequestAction(
 ) {
   const rule = lifecycleActions[action];
 
-  if (!rule) {
+  if (!rule && !["hide", "remove", "reopen"].includes(action)) {
     throw new ServiceError(400, "Unsupported feedback request action");
   }
 
@@ -803,7 +809,8 @@ export async function performFeedbackRequestAction(
         if (record.status !== "closed") throw new ServiceError(409, "Only a closed feedback record can be reopened");
         await connection.execute("UPDATE feedback_requests SET status = 'acknowledged', hidden_at = NULL, removed_at = NULL WHERE id = ?", [requestId]);
       }
-      await writeFeedbackAuditEvent({ requestId, actorId, eventType: `record_${action}d`, details: moderationReason, connection });
+      const eventType = { hide: "record_hidden", remove: "record_removed", reopen: "record_reopened" }[action];
+      await writeFeedbackAuditEvent({ requestId, actorId, eventType, details: moderationReason, connection });
       await connection.commit();
       return getFeedbackRequestById(requestId);
     }

@@ -33,9 +33,9 @@ export async function sendPasswordResetEmail({ email, name, resetUrl }) {
   const transporter = createEmailTransporter(configuration);
 
   await transporter.sendMail({
-    from: `Feedback Hub <${configuration.from}>`,
+    from: `Feedback Process <${configuration.from}>`,
     to: email,
-    subject: "Reset your Feedback Hub password",
+    subject: "Reset your Feedback Process password",
     text: `Hi ${name || "there"},\n\nUse this link to reset your password:\n${resetUrl}\n\nThis link expires in 15 minutes and can be used only once. If you did not request this, you can ignore this email.`,
     html: `
       <p>Hi ${name || "there"},</p>

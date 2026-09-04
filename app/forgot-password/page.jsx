@@ -54,5 +54,5 @@ export default function ForgotPasswordPage() {
 }
 
 function AuthPage({ children }) { return <main className="flex min-h-screen items-center justify-center bg-[#f5f7ff] px-4 py-8 text-slate-950"><div className="w-full max-w-md"><Brand /><section className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_24px_70px_rgba(37,45,112,0.12)] sm:p-9">{children}</section></div></main>; }
-function Brand() { return <Link className="mx-auto mb-8 flex w-fit items-center gap-3" href="/login"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white"><MessageCircle size={21} /></span><span><b className="block text-lg text-[#252d70]">Feedback Hub</b><small className="text-slate-500">Feedback Process</small></span></Link>; }
+function Brand() { return <Link className="mx-auto mb-8 flex w-fit items-center gap-3" href="/login"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#252d70] text-white"><MessageCircle size={21} /></span><span><b className="block text-lg text-[#252d70]">Feedback Process</b></span></Link>; }
 function Notice({ children, error=false }) { return <p className={`rounded-xl px-4 py-3 text-sm font-medium ${error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`} role={error ? "alert" : "status"}>{children}</p>; }

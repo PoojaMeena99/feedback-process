@@ -31,6 +31,9 @@ export default function LoginPage() {
         },
       );
       const data = await response.json();
+      if (response.status === 401) {
+        throw new Error("Password is incorrect");
+      }
       if (!response.ok) throw new Error(data.message || "Could not log in");
 
       router.push("/");

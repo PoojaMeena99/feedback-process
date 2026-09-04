@@ -284,16 +284,19 @@ export async function resetUserPassword({ token, newPassword }) {
   }
 
   const tokenHash = crypto.createHash("sha256").update(token.trim()).digest("hex");
-  const passwordHash = await bcrypt.hash(newPassword, 12);
   const pool = getDatabasePool();
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
     const [[resetToken]] = await connection.execute(
-      `SELECT id, user_id AS userId
-       FROM password_reset_tokens
-       WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()
+      `SELECT reset_token.id, reset_token.user_id AS userId,
+              user.password_hash AS passwordHash
+       FROM password_reset_tokens AS reset_token
+       JOIN users AS user ON user.id = reset_token.user_id
+       WHERE reset_token.token_hash = ?
+         AND reset_token.used_at IS NULL
+         AND reset_token.expires_at > NOW()
        FOR UPDATE`,
       [tokenHash],
     );
@@ -301,6 +304,33 @@ export async function resetUserPassword({ token, newPassword }) {
     if (!resetToken) {
       throw new ServiceError(400, "Reset link is invalid or has expired");
     }
+
+    const [passwordHistory] = await connection.execute(
+      "SELECT password_hash AS passwordHash FROM password_history WHERE user_id = ?",
+      [resetToken.userId],
+    );
+    const usedPasswordHashes = [
+      resetToken.passwordHash,
+      ...passwordHistory.map((password) => password.passwordHash),
+    ];
+    const passwordWasUsedBefore = await Promise.all(
+      usedPasswordHashes.map((passwordHash) => bcrypt.compare(newPassword, passwordHash)),
+    );
+
+    if (passwordWasUsedBefore.some(Boolean)) {
+      throw new ServiceError(
+        400,
+        "Choose a password you have not used before",
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    // Preserve the current password before replacing it so it cannot be reused.
+    await connection.execute(
+      "INSERT INTO password_history (user_id, password_hash) VALUES (?, ?)",
+      [resetToken.userId, resetToken.passwordHash],
+    );
 
     const [updateUserResult] = await connection.execute(
       "UPDATE users SET password_hash = ? WHERE id = ? AND is_active = TRUE",

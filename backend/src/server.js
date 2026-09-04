@@ -11,6 +11,7 @@ import userRouter from "./routes/userRoutes.js";
 import notificationRouter from "./routes/notificationRoutes.js";
 import feedbackReportRouter from "./routes/feedbackReportRoutes.js";
 import { startFeedbackReminderJob } from "./jobs/feedbackReminderJob.js";
+import { getDatabasePool } from "./db/connection.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -55,7 +56,26 @@ app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });
 });
 
-app.listen(port, () => {
-  console.log(`Feedback Process API running at http://localhost:${port}`);
-  startFeedbackReminderJob();
+async function startServer() {
+  // Keep the password-reuse safeguard available for both new and existing databases.
+  await getDatabasePool().execute(
+    `CREATE TABLE IF NOT EXISTS password_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_password_history_user_id (user_id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`,
+  );
+
+  app.listen(port, () => {
+    console.log(`Feedback Process API running at http://localhost:${port}`);
+    startFeedbackReminderJob();
+  });
+}
+
+startServer().catch((error) => {
+  console.error("Feedback Process API could not start:", error);
+  process.exitCode = 1;
 });

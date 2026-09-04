@@ -72,3 +72,14 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+-- Passwords stored here cannot be selected again during a later password reset.
+CREATE TABLE IF NOT EXISTS password_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  INDEX idx_password_history_user_id (user_id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);

@@ -82,6 +82,9 @@ export default function LoginPage() {
               type="password"
               value={form.password}
             />
+            <Link className="-mt-2 justify-self-end text-sm font-semibold text-[#36429a] hover:underline" href="/forgot-password">
+              Forgot password?
+            </Link>
 
             {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 

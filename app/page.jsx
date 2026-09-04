@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
+  Bell,
   Home as HomeIcon,
+  History as HistoryIcon,
   Inbox,
   LogOut,
   Plus,
@@ -38,24 +40,44 @@ export default function Home() {
   const [users, setUsers] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [reports, setReports] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
   const [followUpRequest, setFollowUpRequest] = useState(null);
+  const [replacementRequest, setReplacementRequest] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [activePage, setActivePage] = useState("dashboard");
+  const [requestSearch, setRequestSearch] = useState("");
+  const [requestStatus, setRequestStatus] = useState("all");
   const [error, setError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const latestRequestLoad = useRef(0);
 
   const currentUser = users.find((user) => user.id === currentUserId);
+  const isSCReviewer = ["sc", "admin", "hr"].includes(String(currentUser?.role || "").toLowerCase());
+  const selectedRequestId = selectedRequest?.id;
   const pendingForMe = requests.filter(
-    (request) => request.giverId === currentUserId && ["requested", "overdue"].includes(request.status),
+    (request) => request.giverId === currentUserId && ["requested", "in_progress", "overdue"].includes(request.status),
   );
   const sentByMe = requests.filter((request) => request.requesterId === currentUserId);
-  const submittedCount = requests.filter((request) => request.status === "submitted").length;
+  const receivedFeedback = requests.filter((request) => request.receiverId === currentUserId && request.status === "submitted");
   // Requests returned here already belong to the current user or were shared with them.
   const tableRows = requests.map(toTableRow);
+  const historyRows = tableRows.filter((request) => ["closed", "cancelled", "declined"].includes(request.status));
+  const activeRequestRows = tableRows.filter((request) => !["closed", "cancelled", "declined"].includes(request.status));
+  const rowsForActivePage = activePage === "history" ? historyRows : activeRequestRows;
+  const visibleRows = rowsForActivePage.filter((request) => {
+    const searchableText = [request.requesterName, request.giverName, request.type, request.purpose, request.status].join(" ").toLowerCase();
+    return searchableText.includes(requestSearch.trim().toLowerCase()) && (requestStatus === "all" || request.status === requestStatus);
+  });
+  const statusOptions = activePage === "history"
+    ? [["closed", "Done"], ["cancelled", "Cancelled"], ["declined", "Declined"]]
+    : [["requested", "Requested"], ["in_progress", "In progress"], ["overdue", "Overdue"], ["submitted", "Submitted"], ["acknowledged", "Acknowledged"]];
+  const upcomingRequests = tableRows.filter((request) => ["requested", "in_progress", "overdue"].includes(request.status) && request.dueDate !== "Not selected").slice(0, 3);
 
   useEffect(() => {
     async function loadReferenceData() {
@@ -87,17 +109,20 @@ export default function Home() {
     latestRequestLoad.current = loadId;
 
     try {
-      const [received, sent, shared] = await Promise.all([
+      const [received, receivedFeedback, sent, shared, scheduleData, notificationData] = await Promise.all([
         api(`/feedback-requests/giver/${userId}`),
+        api(`/feedback-requests/receiver/${userId}`),
         api(`/feedback-requests/requester/${userId}`),
         api(`/feedback-requests/visible/${userId}`),
+        api("/feedback-requests/schedules"),
+        api("/notifications"),
       ]);
 
       // When the selected user changes quickly, ignore an older response.
       if (loadId !== latestRequestLoad.current) return;
 
       const merged = new Map(
-        [...received.feedbackRequests, ...sent.feedbackRequests, ...shared.feedbackRequests]
+        [...received.feedbackRequests, ...receivedFeedback.feedbackRequests, ...sent.feedbackRequests, ...shared.feedbackRequests]
           .map((request) => [request.id, request]),
       );
       const newestFirst = [...merged.values()].sort((first, second) => {
@@ -105,6 +130,8 @@ export default function Home() {
         return dateDifference || second.id - first.id;
       });
       setRequests(newestFirst);
+      setSchedules(scheduleData.schedules);
+      setNotifications(notificationData.notifications);
       setError("");
     } catch (loadError) {
       if (loadId !== latestRequestLoad.current) return;
@@ -115,7 +142,22 @@ export default function Home() {
   useEffect(() => {
     if (!currentUserId) return undefined;
 
-    const refreshRequests = () => void loadRequests(currentUserId);
+    const refreshSelectedRequest = async () => {
+      if (!selectedRequestId) return;
+      try {
+        const [detail, template] = await Promise.all([
+          api(`/feedback-requests/${selectedRequestId}`),
+          api(`/templates/${selectedRequest?.templateId}/questions`),
+        ]);
+        setSelectedRequest({ ...detail.feedbackRequest, template });
+      } catch (detailError) {
+        if (detailError.status !== 401) setError(detailError.message);
+      }
+    };
+    const refreshRequests = () => {
+      void loadRequests(currentUserId);
+      void refreshSelectedRequest();
+    };
     refreshRequests();
     const intervalId = window.setInterval(refreshRequests, 3_000);
     window.addEventListener("focus", refreshRequests);
@@ -124,22 +166,50 @@ export default function Home() {
       window.clearInterval(intervalId);
       window.removeEventListener("focus", refreshRequests);
     };
-  }, [currentUserId, loadRequests]);
+  }, [currentUserId, loadRequests, selectedRequestId]);
 
   async function createRequest(payload) {
     try {
-      await api("/feedback-requests", { method: "POST", body: JSON.stringify(payload) });
+      const { recurring, ...requestPayload } = payload;
+      if (recurring) {
+        await api("/feedback-requests/schedules", { method: "POST", body: JSON.stringify(requestPayload) });
+      } else {
+        await api("/feedback-requests", { method: "POST", body: JSON.stringify(requestPayload) });
+      }
       setIsCreateOpen(false);
       await loadRequests(currentUserId);
-      return { ok: true };
+      return { ok: true, recurring };
     } catch (createError) {
       return { ok: false, message: createError.message };
     }
   }
 
+  async function setScheduleStatus(scheduleId, isActive) {
+    try {
+      await api(`/feedback-requests/schedules/${scheduleId}`, { method: "PATCH", body: JSON.stringify({ isActive }) });
+      await loadRequests(currentUserId);
+    } catch (scheduleError) {
+      setError(scheduleError.message);
+    }
+  }
+
+  async function markNotificationRead(notificationId) {
+    try {
+      await api(`/notifications/${notificationId}/read`, { method: "PATCH" });
+      setNotifications((items) => items.map((item) => item.id === notificationId ? { ...item, isRead: true } : item));
+    } catch (notificationError) { setError(notificationError.message); }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      await api("/notifications/read-all", { method: "PATCH" });
+      setNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
+    } catch (notificationError) { setError(notificationError.message); }
+  }
+
   async function openRequest(requestId) {
     try {
-      const detail = await api(`/feedback-requests/${requestId}`);
+      const detail = await api(`/feedback-requests/${requestId}?recordView=true`);
       const template = await api(`/templates/${detail.feedbackRequest.templateId}/questions`);
       setSelectedRequest({ ...detail.feedbackRequest, template });
     } catch (requestError) {
@@ -153,11 +223,11 @@ export default function Home() {
     await loadRequests(currentUserId);
   }
 
-  async function performRequestAction(requestId, action, acknowledgementComment, declineReason) {
+  async function performRequestAction(requestId, action, acknowledgementComment, declineReason, alternateGiverId, moderationReason) {
     try {
       await api(`/feedback-requests/${requestId}/actions`, {
         method: "POST",
-        body: JSON.stringify({ action, acknowledgementComment, declineReason }),
+        body: JSON.stringify({ action, acknowledgementComment, declineReason, alternateGiverId, moderationReason }),
       });
       await loadRequests(currentUserId);
       setError("");
@@ -194,6 +264,45 @@ export default function Home() {
       setError(followUpError.message);
       return false;
     }
+  }
+
+  async function createDiscussion(requestId, payload) {
+    try {
+      await api(`/feedback-requests/${requestId}/discussions`, { method: "POST", body: JSON.stringify(payload) });
+      await openRequest(requestId);
+      await loadRequests(currentUserId);
+      setError("");
+      return true;
+    } catch (discussionError) {
+      setError(discussionError.message);
+      return false;
+    }
+  }
+
+  async function reportFeedback(requestId, payload) {
+    try {
+      await api(`/feedback-requests/${requestId}/reports`, { method: "POST", body: JSON.stringify(payload) });
+      setError("");
+      return { ok: true };
+    } catch (reportError) {
+      setError(reportError.message);
+      return { ok: false, message: reportError.message };
+    }
+  }
+
+  async function loadReports() {
+    try {
+      const reportData = await api("/feedback-reports");
+      setReports(reportData.reports);
+      setError("");
+    } catch (reportError) { setError(reportError.message); }
+  }
+
+  async function reviewReport(reportId, status) {
+    try {
+      await api(`/feedback-reports/${reportId}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await loadReports();
+    } catch (reportError) { setError(reportError.message); }
   }
 
   async function updateFollowUp(requestId, followUpId, payload) {
@@ -247,10 +356,10 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
-      <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
+      <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} notifications={notifications} onNotificationRead={markNotificationRead} onReadAll={markAllNotificationsRead} onOpenRequest={(requestId) => void openRequest(requestId)} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
-        <Sidebar />
+        <Sidebar activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); }} />
 
         <main className="border-x border-line/70 bg-white/45 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8">
           <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -259,11 +368,12 @@ export default function Home() {
                 <Sparkles size={15} />
                 Feedback workspace
               </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">Feedback</h1>
-              <p className="mt-2 text-base text-muted">Request, share, and review thoughtful feedback in one place.</p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : activePage === "reports" ? "SC Team Review" : "Feedback Requests"}</h1>
+              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : activePage === "reports" ? "Private reports that need SC Team review." : "Review, manage, and respond to every feedback request."}</p>
             </div>
           </div>
 
+          {activePage === "dashboard" ? <>
           <section className="grid gap-5 xl:grid-cols-3">
             <StatCard
               icon={<Inbox size={28} />}
@@ -282,21 +392,34 @@ export default function Home() {
             <StatCard
               icon={<Check size={28} />}
               tone="amber"
-              label="Submitted"
-              value={submittedCount}
-              helper="Feedback responses submitted"
+              label="Received feedback"
+              value={receivedFeedback.length}
+              helper="Feedback responses ready to review"
             />
           </section>
 
-          <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+          <section className="mt-7 grid gap-5 xl:grid-cols-3">
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-blue-600">Quick actions</p><h2 className="mt-1 text-xl font-bold text-slate-950">What would you like to do?</h2><div className="mt-5 flex flex-wrap gap-3"><button className={primaryButton} type="button" onClick={() => { setReplacementRequest(null); setIsCreateOpen(true); }}><Plus size={17} /> Request feedback</button><button className={secondaryButton} type="button" onClick={() => setActivePage("requests")}>View requests ({pendingForMe.length})</button></div></article>
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-amber-600">Upcoming due dates</p><h2 className="mt-1 text-xl font-bold text-slate-950">Keep on track</h2><div className="mt-4 grid gap-2">{upcomingRequests.length ? upcomingRequests.map((request) => <div key={request.id} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold">{request.type}</span><span className="font-bold text-amber-700">{request.dueDate}</span></div>) : <p className="text-sm text-muted">No upcoming due dates.</p>}</div></article>
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recent activity</p><h2 className="mt-1 text-xl font-bold text-slate-950">Latest updates</h2><div className="mt-4 grid gap-2">{tableRows.slice(0, 3).map((request) => <button key={request.id} type="button" onClick={() => void openRequest(request.id)} className="rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-violet-50"><p className="font-semibold text-slate-800">{request.type}</p><p className="mt-1 text-muted">{request.status} · {request.giverName}</p></button>)}</div></article>
+          </section>
+          {schedules.length ? <section className="mt-5 rounded-2xl border border-line/80 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Scheduled feedback</p><h2 className="mt-1 text-xl font-bold text-slate-950">Your schedules</h2></div><span className="rounded-full bg-violet-50 px-3 py-1 text-sm font-semibold text-violet-700">{schedules.filter((schedule) => schedule.isActive).length} active</span></div><div className="mt-4 grid gap-3">{schedules.map((schedule) => <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3" key={schedule.id}><div><p className="font-semibold text-slate-900">{schedule.templateName} · {schedule.giverName} → {schedule.receiverName}</p><p className="mt-1 text-sm text-muted">{schedule.frequency === "once" ? `One time at ${schedule.scheduledTime || "scheduled time"}` : schedule.frequency === "quarterly" ? "Every 3 months" : "Monthly"} · Next request: {formatDueDate(schedule.nextRunDate)} · {schedule.dueInDays} days to respond</p></div><button className={secondaryButton} type="button" onClick={() => void setScheduleStatus(schedule.id, !schedule.isActive)}>{schedule.isActive ? "Pause" : "Resume"}</button></div>)}</div></section> : null}
+          </> : null}
+
+          {activePage === "reports" && isSCReviewer ? <SCReportReview reports={reports} onReview={(reportId, status) => void reviewReport(reportId, status)} onOpenRequest={(requestId) => void openRequest(requestId)} /> : null}
+
+          {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
-              <h2 className="text-2xl font-bold text-[#111827]">Feedback Requests</h2>
+              <div className="flex flex-1 flex-wrap items-center gap-3">
+                <input className="field-control max-w-xs" type="search" value={requestSearch} placeholder="Search people, type, or purpose" onChange={(event) => setRequestSearch(event.target.value)} />
+                <select className="field-control w-auto min-w-40" value={requestStatus} onChange={(event) => setRequestStatus(event.target.value)}>
+                  <option value="all">All statuses</option>
+                  {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                {requestSearch || requestStatus !== "all" ? <button className="text-sm font-semibold text-blue-700 hover:text-blue-900" type="button" onClick={() => { setRequestSearch(""); setRequestStatus("all"); }}>Clear filters</button> : null}
+              </div>
               <div className="flex items-center gap-3">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{tableRows.length} total</span>
-                <button className="inline-flex items-center gap-2 rounded-lg bg-[#252d70] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1e255e]" type="button" onClick={() => setIsCreateOpen(true)}>
-                  <Plus size={17} />
-                  Request feedback
-                </button>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{activePage === "history" ? `${visibleRows.length} history records` : `${visibleRows.length} total requests`}</span>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -313,7 +436,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {tableRows.length ? tableRows.map((row) => (
+                  {visibleRows.length ? visibleRows.map((row) => (
                     <tr key={row.id} className="hover:bg-[#f9fbff]">
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">
@@ -336,7 +459,7 @@ export default function Home() {
                         <p className="font-semibold">{row.dueDate}</p>
                       </td>
                       <td className="px-4 py-5">
-                        <span className={statusClass(row.status)}>{row.status}</span>
+                        <span className={statusClass(row.status)}>{row.status === "closed" ? "Done" : row.status}</span>
                         {row.status === "submitted" && row.giverId === currentUserId ? (
                           <p className="mt-1 text-xs font-medium text-slate-500">
                             Waiting for {row.requesterName} to acknowledge
@@ -355,19 +478,13 @@ export default function Home() {
                         ) : null}
                       </td>
                       <td className="px-4 py-5">
-                        <RequestActions
-                          row={row}
-                          currentUserId={currentUserId}
-                          onView={() => void openRequest(row.id)}
-                          onAction={(action) => handleRequestAction(row, action)}
-                          onEditDueDate={() => setDueDateRequest(row)}
-                        />
+                        {activePage === "history" ? <div className="flex flex-wrap gap-2"><button className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50" type="button" onClick={() => void openRequest(row.id)}>View</button>{row.status === "declined" && row.requesterId === currentUserId && row.alternateGiverId ? <button className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-50" type="button" onClick={() => { setReplacementRequest(row); setIsCreateOpen(true); }}>Use suggested reviewer</button> : null}</div> : <RequestActions row={row} currentUserId={currentUserId} onView={() => void openRequest(row.id)} onAction={(action) => handleRequestAction(row, action)} onEditDueDate={() => setDueDateRequest(row)} />}
                       </td>
                     </tr>
                   )) : (
                     <tr>
                       <td className="px-6 py-12 text-center text-base text-muted" colSpan={7}>
-                        No feedback requests yet. Create a request from the right panel.
+                        {requestSearch || requestStatus !== "all" ? "No requests match these filters." : activePage === "history" ? "No feedback history yet." : "No feedback requests yet. Create a request from the right panel."}
                       </td>
                     </tr>
                   )}
@@ -375,9 +492,9 @@ export default function Home() {
               </table>
             </div>
             <div className="flex items-center justify-between border-t border-line px-6 py-4 text-base text-muted">
-              <span>Showing 1 to {tableRows.length} of {tableRows.length} requests</span>
+              <span>Showing 1 to {visibleRows.length} of {rowsForActivePage.length} {activePage === "history" ? "history records" : "requests"}</span>
             </div>
-          </section>
+          </section> : null}
           {error ? (
             <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {error}
@@ -391,8 +508,9 @@ export default function Home() {
             currentUser={currentUser}
             users={users}
             templates={templates}
+            replacementRequest={replacementRequest}
             onCreate={createRequest}
-            onClose={() => setIsCreateOpen(false)}
+            onClose={() => { setIsCreateOpen(false); setReplacementRequest(null); }}
           />
         ) : null}
       </div>
@@ -403,24 +521,31 @@ export default function Home() {
         <FeedbackDetail
           request={selectedRequest}
           currentUserId={currentUserId}
+          currentUserRole={currentUser.role}
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
           onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
           onCreateFollowUp={() => setFollowUpRequest(selectedRequest)}
           onUpdateFollowUp={updateFollowUp}
+          onDiscussion={createDiscussion}
+          onReport={reportFeedback}
+          onModerate={(requestId, action, reason) => performRequestAction(requestId, action, undefined, undefined, undefined, reason)}
         />
       ) : null}
 
       {declineRequest ? (
         <DeclineFeedbackModal
           request={declineRequest}
+          users={users}
+          currentUserId={currentUserId}
           onClose={() => setDeclineRequest(null)}
-          onSubmit={async (reason) => {
+          onSubmit={async (reason, alternateGiverId) => {
             const wasDeclined = await performRequestAction(
               declineRequest.id,
               "decline",
               undefined,
               reason,
+              alternateGiverId,
             );
             if (wasDeclined) setDeclineRequest(null);
             return wasDeclined;
@@ -455,7 +580,9 @@ export default function Home() {
   );
 }
 
-function AppHeader({ currentUser, onLogout, isLoggingOut }) {
+function AppHeader({ currentUser, onLogout, isLoggingOut, notifications, onNotificationRead, onReadAll, onOpenRequest }) {
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
   return (
     <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
@@ -470,6 +597,10 @@ function AppHeader({ currentUser, onLogout, isLoggingOut }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <button className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/25 text-white transition hover:bg-white/10" type="button" aria-label="Notifications" onClick={() => setIsNotificationsOpen((open) => !open)}><Bell size={19} />{unreadCount ? <span className="absolute -right-2 -top-2 min-w-5 rounded-full bg-red-500 px-1 text-xs font-bold leading-5 text-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}</button>
+            {isNotificationsOpen ? <div className="absolute right-0 z-30 mt-3 w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><p className="font-bold">Notifications</p>{unreadCount ? <button className="text-sm font-semibold text-blue-700" type="button" onClick={() => void onReadAll()}>Mark all read</button> : null}</div><div className="max-h-96 overflow-y-auto">{notifications.length ? notifications.map((notification) => <button className={`block w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${notification.isRead ? "bg-white" : "bg-blue-50/70"}`} type="button" key={notification.id} onClick={() => { void onNotificationRead(notification.id); if (notification.requestId) { onOpenRequest(notification.requestId); setIsNotificationsOpen(false); } }}><p className="text-sm font-bold">{notification.title}</p><p className="mt-1 text-sm text-slate-600">{notification.message}</p><p className="mt-1 text-xs text-slate-400">{formatHistoryTime(notification.createdAt)}</p></button>) : <p className="px-4 py-8 text-center text-sm text-slate-500">No notifications yet.</p>}</div></div> : null}
+          </div>
           <div className="hidden items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white shadow-sm sm:flex">
             <Avatar initials={initialsForName(currentUser.name)} small />
             <span className="text-blue-100">Logged in as</span>
@@ -501,29 +632,54 @@ function AppFooter() {
   );
 }
 
-function Sidebar() {
+function Sidebar({ activePage, showSCReview, onSelect }) {
   return (
     <aside className="hidden border-r border-indigo-400/25 bg-[#252d70] px-4 py-8 text-slate-200 lg:flex lg:flex-col">
       <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.14em] text-indigo-200/70">Workspace</p>
       <nav className="space-y-2 text-base font-medium">
-        <SidebarItem active icon={<HomeIcon size={22} />} label="Dashboard" />
-        <SidebarItem icon={<Inbox size={22} />} label="Feedback Requests" />
+        <SidebarItem active={activePage === "dashboard"} icon={<HomeIcon size={22} />} label="Dashboard" onClick={() => onSelect("dashboard")} />
+        <SidebarItem active={activePage === "requests"} icon={<Inbox size={22} />} label="Feedback Requests" onClick={() => onSelect("requests")} />
+        <SidebarItem active={activePage === "history"} icon={<HistoryIcon size={22} />} label="Feedback History" onClick={() => onSelect("history")} />
+        {showSCReview ? <SidebarItem active={activePage === "reports"} icon={<Inbox size={22} />} label="SC Team Review" onClick={() => onSelect("reports")} /> : null}
       </nav>
     </aside>
   );
 }
 
-function SidebarItem({ active = false, icon, label }) {
+function SCReportReview({ reports, onReview, onOpenRequest }) {
+  const openReports = reports.filter((report) => report.status === "open");
   return (
-    <a
+    <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
+        <div><p className="font-bold text-slate-950">Reported feedback</p><p className="mt-1 text-sm text-muted">Only SC Team reviewers can access this list.</p></div>
+        <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">{openReports.length} open</span>
+      </div>
+      <div className="divide-y divide-line">
+        {reports.length ? reports.map((report) => <article className="grid gap-4 px-6 py-5 sm:grid-cols-[1fr_auto]" key={report.id}>
+          <div><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">Report #{report.id}</p><span className={`rounded-full px-2 py-1 text-xs font-bold ${report.status === "open" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{report.status}</span></div><p className="mt-2 text-sm text-slate-700"><span className="font-semibold">Reason:</span> {reportReasonLabel(report.reason)}</p>{report.details ? <p className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{report.details}</p> : null}<p className="mt-3 text-xs text-muted">Reported by {report.reporterName} · {report.templateName} · {formatHistoryTime(report.createdAt)}</p></div>
+          <div className="flex flex-wrap content-start gap-2"><button className={secondaryButton} type="button" onClick={() => onOpenRequest(report.requestId)}>View feedback</button>{report.status === "open" ? <><button className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700" type="button" onClick={() => onReview(report.id, "resolved")}>Resolve</button><button className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" type="button" onClick={() => onReview(report.id, "dismissed")}>Dismiss</button></> : null}</div>
+        </article>) : <p className="px-6 py-12 text-center text-base text-muted">No feedback reports yet.</p>}
+      </div>
+    </section>
+  );
+}
+
+function reportReasonLabel(reason) {
+  return { rude: "Rude or disrespectful", harassment: "Harassment or bullying", discrimination: "Discrimination", inappropriate: "Inappropriate content", other: "Other concern" }[reason] || reason;
+}
+
+function SidebarItem({ active = false, icon, label, onClick }) {
+  return (
+    <button
       className={`flex items-center gap-4 rounded-xl px-4 py-3 transition ${
         active ? "bg-white/18 text-white shadow-lg shadow-indigo-950/20" : "text-indigo-100/75 hover:bg-white/10 hover:text-white"
       }`}
-      href="#"
+      type="button"
+      onClick={onClick}
     >
       {icon}
       {label}
-    </a>
+    </button>
   );
 }
 
@@ -552,7 +708,7 @@ function StatCard({ icon, tone, label, value, helper }) {
   );
 }
 
-function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onCreate, onClose }) {
+function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, replacementRequest, onCreate, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
@@ -560,9 +716,15 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     "Please share feedback for my learning progress.",
   );
   const [dueDate, setDueDate] = useState("");
+  const [recurring, setRecurring] = useState(false);
+  const [frequency, setFrequency] = useState("quarterly");
+  const [scheduledTime, setScheduledTime] = useState("09:00");
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dueInDays, setDueInDays] = useState("7");
   const [purpose, setPurpose] = useState("growth");
   const [visibility, setVisibility] = useState("private");
   const [viewerIds, setViewerIds] = useState([]);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [notice, setNotice] = useState(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -586,11 +748,29 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     }
   }, [templateId, templates]);
 
+  useEffect(() => {
+    if (!replacementRequest) return;
+    setGiverId(String(replacementRequest.alternateGiverId));
+    setTemplateId(String(replacementRequest.templateId));
+    setPurpose(replacementRequest.rawPurpose || "growth");
+    setDueDate("");
+    setRecurring(false);
+    setViewerIds([]);
+    setVisibility("private");
+    setMessage(`Replacement request after ${replacementRequest.giverName} declined.`);
+    setNotice(null);
+    setShowMoreOptions(false);
+  }, [replacementRequest]);
+
   async function submit(event) {
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId) return;
-    if (dueDate && dueDate < today) {
+    if (!recurring && dueDate && dueDate < today) {
       setNotice("Due date cannot be in the past.");
+      return;
+    }
+    if (recurring && startDate < today) {
+      setNotice("First request date cannot be in the past.");
       return;
     }
     if (visibility === "mentor_lead" && viewerIds.length !== 1) {
@@ -605,10 +785,15 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       giverId: Number(giverId),
       templateId: Number(templateId),
       message,
-      dueDate,
+      dueDate: recurring ? undefined : dueDate,
       purpose,
       visibility,
       viewerIds,
+      recurring,
+      frequency: recurring ? frequency : undefined,
+      scheduledTime: recurring ? scheduledTime : undefined,
+      startDate: recurring ? startDate : undefined,
+      dueInDays: recurring ? Number(dueInDays) : undefined,
     });
     if (result.ok) {
       onClose();
@@ -621,8 +806,9 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     <aside className="border-l border-line/80 bg-white px-6 py-7 shadow-[-10px_0_30px_rgba(15,23,42,0.04)] sm:px-7 sm:py-8 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-72px)] lg:self-start lg:overflow-y-auto">
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">New request</p>
-          <h2 className="text-3xl font-bold tracking-tight text-[#111827]">Request feedback</h2>
+          <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">{replacementRequest ? "Replacement request" : "New request"}</p>
+          <h2 className="text-3xl font-bold tracking-tight text-[#111827]">{replacementRequest ? `Ask ${replacementRequest.alternateGiverName}` : "Request feedback"}</h2>
+          <p className="mt-2 text-sm text-muted">Sending as {currentUser.name}</p>
         </div>
         <button className="rounded-lg p-2 text-muted transition hover:bg-slate-100 hover:text-ink" type="button" aria-label="Close request form" onClick={onClose}>
           ×
@@ -630,13 +816,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       </div>
 
       <form className="grid gap-6" onSubmit={submit}>
-        <Field label="Request sent by">
-          <div className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-slate-50 px-4 text-base font-semibold text-slate-700">
-            <Avatar initials={initialsForName(currentUser.name)} small />
-            {currentUser.name}
-          </div>
-        </Field>
-
         <Field label="Feedback type">
           <SelectShell>
             <select className="w-full bg-transparent outline-none" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
@@ -645,17 +824,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
                   {template.name}
                 </option>
               ))}
-            </select>
-          </SelectShell>
-        </Field>
-
-        <Field label="Feedback purpose">
-          <SelectShell>
-            <select className="w-full bg-transparent outline-none" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
-              <option value="growth">Development and growth</option>
-              <option value="project_improvement">Project improvement</option>
-              <option value="one_on_one">One-on-one discussion</option>
-              <option value="appraisal">Official performance/appraisal record</option>
             </select>
           </SelectShell>
         </Field>
@@ -672,6 +840,26 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
             </select>
           </SelectShell>
           <p className="text-sm font-normal text-muted">This person will receive the request and fill the feedback form.</p>
+        </Field>
+
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <span className="font-semibold">You will receive this feedback.</span> It is automatically linked to your account.
+        </div>
+
+        <button className="flex items-center justify-between rounded-lg border border-dashed border-slate-300 px-4 py-3 text-left text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50" type="button" onClick={() => setShowMoreOptions((visible) => !visible)}>
+          <span>{showMoreOptions ? "Hide additional options" : "More options"}</span><span aria-hidden="true">{showMoreOptions ? "−" : "+"}</span>
+        </button>
+
+        {showMoreOptions ? <>
+        <Field label="Feedback purpose">
+          <SelectShell>
+            <select className="w-full bg-transparent outline-none" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+              <option value="growth">Development and growth</option>
+              <option value="project_improvement">Project improvement</option>
+              <option value="one_on_one">One-on-one discussion</option>
+              <option value="appraisal">Official performance/appraisal record</option>
+            </select>
+          </SelectShell>
         </Field>
 
         <Field label="Who can view feedback?">
@@ -727,12 +915,29 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
             <p className="text-sm font-normal text-muted">Selected people can read this request and its feedback, but cannot edit it.</p>
           </div>
         ) : null}
+        </> : null}
 
-        <Field label="Due date">
+        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input className="mt-1 h-4 w-4" type="checkbox" checked={recurring} disabled={Boolean(replacementRequest)} onChange={(event) => setRecurring(event.target.checked)} />
+            <span><span className="font-semibold text-slate-900">Repeat this feedback</span><span className="mt-1 block text-sm font-normal text-slate-600">Create future requests automatically for regular feedback.</span></span>
+          </label>
+          {recurring ? <div className="mt-4 grid gap-4 border-t border-violet-200 pt-4">
+            <Field label="Repeat frequency">
+              <SelectShell><select className="w-full bg-transparent outline-none" value={frequency} onChange={(event) => setFrequency(event.target.value)}><option value="once">One-time (date and time)</option><option value="monthly">Monthly</option><option value="quarterly">Every 3 months</option></select></SelectShell>
+            </Field>
+            <Field label="First request date"><input className={fieldClass} type="date" min={today} value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></Field>
+            {frequency === "once" ? <Field label="Send request at"><input className={fieldClass} type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} required /></Field> : null}
+            <Field label="Give feedback within"><SelectShell><select className="w-full bg-transparent outline-none" value={dueInDays} onChange={(event) => setDueInDays(event.target.value)}><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option></select></SelectShell></Field>
+            <p className="text-sm font-normal text-violet-800">The giver gets a Mattermost notification on every scheduled request.</p>
+          </div> : null}
+        </div>
+
+        {!recurring ? <Field label="Due date">
           <input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-        </Field>
+        </Field> : null}
 
-        <Field label="Feedback request message (optional)">
+        {showMoreOptions ? <Field label="Feedback request message (optional)">
           <textarea
             className={`${fieldClass} min-h-48 resize-y leading-7`}
             value={message}
@@ -740,11 +945,11 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
             onChange={(event) => setMessage(event.target.value)}
           />
           <p className="text-sm font-normal text-muted">{message.length} / 500 characters</p>
-        </Field>
+        </Field> : null}
 
         <button className={`${primaryButton} mt-4 w-full py-4 text-lg`} type="submit">
           <Send size={22} />
-          Send Request
+          {recurring ? (frequency === "once" ? "Schedule request" : "Save recurring schedule") : "Send Request"}
         </button>
         {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-700">{notice}</p> : null}
       </form>
@@ -769,8 +974,9 @@ function Field({ label, children }) {
   );
 }
 
-function DeclineFeedbackModal({ request, onClose, onSubmit }) {
+function DeclineFeedbackModal({ request, users, currentUserId, onClose, onSubmit }) {
   const [reason, setReason] = useState("");
+  const [alternateGiverId, setAlternateGiverId] = useState("");
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -783,7 +989,7 @@ function DeclineFeedbackModal({ request, onClose, onSubmit }) {
 
     setIsSubmitting(true);
     setNotice("");
-    const wasDeclined = await onSubmit(reason);
+    const wasDeclined = await onSubmit(reason, alternateGiverId ? Number(alternateGiverId) : null);
     if (!wasDeclined) setIsSubmitting(false);
   }
 
@@ -804,6 +1010,13 @@ function DeclineFeedbackModal({ request, onClose, onSubmit }) {
               required
             />
             <p className="text-sm font-normal text-muted">{reason.length} / 500 characters</p>
+          </Field>
+          <Field label="Suggest another reviewer (optional)">
+            <select className={fieldClass} value={alternateGiverId} onChange={(event) => setAlternateGiverId(event.target.value)}>
+              <option value="">No suggestion</option>
+              {users.filter((user) => user.id !== currentUserId && user.id !== request.requesterId).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+            </select>
+            <p className="text-sm font-normal text-muted">The requester can create a replacement request with this person.</p>
           </Field>
           {notice ? <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{notice}</p> : null}
           <div className="flex justify-end gap-3 pt-2">
@@ -918,15 +1131,28 @@ function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp }) {
+function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion, onReport, onModerate }) {
   const template = request.template;
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
-  const canSubmit = isGiver && ["requested", "overdue"].includes(request.status);
-  const canAcknowledge = isRequester && request.status === "submitted";
-  const canCreateFollowUp = isRequester && request.status === "acknowledged";
+  const isReceiver = Number(currentUserId) === Number(request.receiverId);
+  const canSubmit = isGiver && ["requested", "in_progress", "overdue"].includes(request.status);
+  const canAcknowledge = isReceiver && request.status === "submitted";
+  const canCreateFollowUp = (isRequester || isReceiver) && ["acknowledged", "follow_up_needed"].includes(request.status);
+  const feedbackWasShared = ["submitted", "acknowledged", "follow_up_needed", "closed"].includes(request.status);
+  const wasStopped = ["cancelled", "declined"].includes(request.status);
+  const footerMessage = request.status === "cancelled"
+    ? "This feedback request was cancelled."
+    : request.status === "declined"
+      ? "This feedback request was declined."
+      : feedbackWasShared
+        ? `This feedback was shared with ${request.requesterName}.`
+        : `Your feedback will be shared with ${request.requesterName}.`;
   const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isModerationOpen, setIsModerationOpen] = useState(false);
+  const canModerate = ["admin", "hr", "sc"].includes(String(currentUserRole).toLowerCase());
 
   async function submit(event) {
     event.preventDefault();
@@ -952,6 +1178,10 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             </h2>
             <p className="mt-2 text-sm text-slate-600">Share clear, kind, and actionable feedback.</p>
           </div>
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {canModerate ? <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" type="button" onClick={() => setIsModerationOpen(true)}>Record controls</button> : null}
+            {feedbackWasShared ? <button className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50" type="button" onClick={() => setIsReportOpen(true)}>Report feedback</button> : null}
+          </div>
         </div>
 
         <form className="grid gap-5 p-6 sm:p-8" onSubmit={submit}>
@@ -964,7 +1194,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             <p className="mt-1 text-slate-600">{formatVisibility(request.visibility)}</p>
             {request.viewers?.length ? <p className="mt-1 text-slate-600">Shared with: {request.viewers.map((viewer) => viewer.name).join(", ")}</p> : null}
           </div>
-          {template.questions.map((question, index) => (
+          {!wasStopped ? template.questions.map((question, index) => (
             <Field key={question.id} label={<span className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span><span>{question.questionText}</span></span>}>
               <textarea
                 className={`${fieldClass} min-h-28 resize-y border-slate-200 bg-slate-50/70 leading-7 focus:bg-white disabled:bg-surface disabled:text-muted`}
@@ -974,7 +1204,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
                 required
               />
             </Field>
-          ))}
+          )) : null}
           {canAcknowledge ? (
             <Field label="Acknowledgement comment (optional)">
               <textarea
@@ -997,8 +1227,10 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
             <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-950">
               <p className="font-semibold">Decline reason</p>
               <p className="mt-1 whitespace-pre-wrap text-red-800">{request.declineReason}</p>
+              {request.alternateGiverName ? <p className="mt-2 font-semibold text-violet-800">Suggested reviewer: {request.alternateGiverName}</p> : null}
             </div>
           ) : null}
+          {feedbackWasShared ? <FeedbackConversation request={request} currentUserId={currentUserId} onDiscussion={onDiscussion} /> : null}
           {!canSubmit && !canAcknowledge && request.followUps?.length ? (
             <section className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
               <p className="font-semibold text-slate-900">Follow-up actions</p>
@@ -1011,7 +1243,7 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
           ) : null}
           {!canSubmit && !canAcknowledge ? <FeedbackHistory request={request} /> : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
-            <p className="text-sm text-muted">Your feedback will be shared with {request.requesterName}.</p>
+            <p className="text-sm text-muted">{footerMessage}</p>
             <div className="flex flex-wrap gap-2">
             <button className={secondaryButton} type="button" onClick={onClose}>
               Close
@@ -1037,7 +1269,164 @@ function FeedbackDetail({ request, currentUserId, onClose, onSubmit, onAcknowled
           </div>
         </form>
       </section>
+      {isReportOpen ? <ReportFeedbackModal request={request} onClose={() => setIsReportOpen(false)} onReport={onReport} /> : null}
+      {isModerationOpen ? <ModerateFeedbackModal request={request} onClose={() => setIsModerationOpen(false)} onModerate={onModerate} /> : null}
     </div>
+  );
+}
+
+function ModerateFeedbackModal({ request, onClose, onModerate }) {
+  const availableActions = request.status === "closed"
+    ? [{ value: "hide", label: "Hide from participant lists" }, { value: "remove", label: "Remove from participant lists" }, { value: "reopen", label: "Reopen completed feedback" }]
+    : [{ value: "hide", label: "Hide from participant lists" }, { value: "remove", label: "Remove from participant lists" }];
+  const [action, setAction] = useState(availableActions[0].value);
+  const [reason, setReason] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (reason.trim().length < 3) return setNotice("Please enter a reason of at least 3 characters.");
+    setIsSaving(true);
+    const wasSaved = await onModerate(request.id, action, reason.trim());
+    setIsSaving(false);
+    if (wasSaved) onClose();
+    else setNotice("The record control could not be saved. Please try again.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onSubmit={submit}>
+        <p className="text-lg font-bold text-slate-950">Record controls</p>
+        <p className="mt-2 text-sm text-slate-600">SC, HR, and admins can moderate this record. Every action and reason is kept in the audit trail.</p>
+        <label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800">Action
+          <select className={fieldClass} value={action} onChange={(event) => setAction(event.target.value)}>
+            {availableActions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-800">Reason
+          <textarea className={`${fieldClass} min-h-24 resize-y`} value={reason} maxLength={1000} placeholder="Explain why this action is needed." onChange={(event) => setReason(event.target.value)} required />
+        </label>
+        {notice ? <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{notice}</p> : null}
+        <div className="mt-5 flex justify-end gap-3">
+          <button className={secondaryButton} type="button" onClick={onClose}>Cancel</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-slate-900 px-4 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSaving}>{isSaving ? "Saving…" : "Save action"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ReportFeedbackModal({ request, onClose, onReport }) {
+  const [reason, setReason] = useState("rude");
+  const [details, setDetails] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submitReport(event) {
+    event.preventDefault();
+    setIsSaving(true);
+    const result = await onReport(request.id, { reason, details });
+    setIsSaving(false);
+    if (result.ok) setNotice("Your report was sent privately to the SC Team for review.");
+    else setNotice(result.message || "Your report could not be sent.");
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onSubmit={submitReport}>
+        <p className="text-lg font-bold text-slate-950">Report feedback</p>
+        <p className="mt-2 text-sm text-slate-600">Use this only for harmful, abusive, discriminatory, or inappropriate feedback. Your report is private.</p>
+        <label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800">Reason
+          <select className={fieldClass} value={reason} onChange={(event) => setReason(event.target.value)}>
+            <option value="rude">Rude or disrespectful</option>
+            <option value="harassment">Harassment or bullying</option>
+            <option value="discrimination">Discrimination</option>
+            <option value="inappropriate">Inappropriate content</option>
+            <option value="other">Other concern</option>
+          </select>
+        </label>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-800">What happened? <span className="font-normal text-slate-500">(optional)</span>
+          <textarea className={`${fieldClass} min-h-28 resize-y`} value={details} maxLength={1000} placeholder="Add any context that could help the reviewer." onChange={(event) => setDetails(event.target.value)} />
+        </label>
+        {notice ? <p className={`mt-4 rounded-lg px-3 py-2 text-sm font-medium ${notice.startsWith("Your report was") ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{notice}</p> : null}
+        <div className="mt-5 flex justify-end gap-3">
+          <button className={secondaryButton} type="button" onClick={onClose}>Cancel</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-red-600 px-4 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSaving || Boolean(notice && notice.startsWith("Your report was"))}>{isSaving ? "Sending…" : "Send report"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function FeedbackConversation({ request, currentUserId, onDiscussion }) {
+  const isReceiver = Number(currentUserId) === Number(request.receiverId);
+  const isGiver = Number(currentUserId) === Number(request.giverId);
+  const canDiscuss = ["submitted", "acknowledged"].includes(request.status);
+  const [message, setMessage] = useState("");
+  const [replyValues, setReplyValues] = useState({});
+  const [notice, setNotice] = useState("");
+  const discussions = request.discussions || [];
+  const questions = discussions.filter((discussion) => !discussion.parentId);
+  const messages = [...discussions].sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt));
+
+  async function sendMessage() {
+    if (message.trim().length < 3) return setNotice("Please write at least 3 characters.");
+    const saved = await onDiscussion(request.id, { type: "clarification", message });
+    if (saved) {
+      setMessage("");
+      setNotice("");
+    } else {
+      setNotice("Message could not be sent. Please try again.");
+    }
+  }
+
+  async function sendReply(parentId) {
+    const reply = replyValues[parentId] || "";
+    if (reply.trim().length < 3) return setNotice("Please write at least 3 characters.");
+    const saved = await onDiscussion(request.id, { type: "response", message: reply, parentId });
+    if (saved) {
+      setReplyValues((values) => ({ ...values, [parentId]: "" }));
+      setNotice("");
+    } else {
+      setNotice("Reply could not be sent. Please try again.");
+    }
+  }
+
+  // Keep the conversation visible after the feedback is closed. At that stage it
+  // becomes a read-only record, so people can revisit the context later.
+  if (!canDiscuss && !messages.length) return null;
+
+  return (
+    <section className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
+      <p className="font-semibold text-slate-900">Questions about this feedback</p>
+      <p className="mt-1 text-sm text-slate-600">{canDiscuss ? "One conversation for this feedback. Open questions need a reply before the request can close." : "Saved conversation from this completed feedback process."}</p>
+
+      {messages.length ? <div className="mt-4 space-y-3">
+        {messages.map((discussion) => {
+          const isReply = Boolean(discussion.parentId);
+          const isFromGiver = Number(discussion.authorId) === Number(request.giverId);
+          return <div className={`max-w-[88%] rounded-xl px-4 py-3 ${isFromGiver ? "mr-auto border border-sky-200 bg-white" : "ml-auto bg-emerald-100 text-emerald-950"}`} key={discussion.id}>
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{discussion.authorName} · {isFromGiver ? "Feedback giver" : "Feedback receiver"}</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm">{discussion.message}</p>
+            <p className="mt-2 text-xs text-slate-500">{isReply ? "Reply" : "Question"}</p>
+          </div>;
+        })}
+      </div> : <p className="mt-4 rounded-lg border border-dashed border-sky-200 bg-white/70 px-4 py-3 text-sm text-slate-600">No questions yet.</p>}
+
+      {canDiscuss && isReceiver ? <div className="mt-4 grid gap-3 border-t border-sky-100 pt-4">
+        <textarea className={`${fieldClass} min-h-24 resize-y`} value={message} maxLength={1000} placeholder="Ask a question about this feedback" onChange={(event) => setMessage(event.target.value)} />
+        <button className={`${secondaryButton} justify-self-start`} type="button" onClick={() => void sendMessage()}>Send question</button>
+      </div> : null}
+
+      {canDiscuss && isGiver ? questions.filter((question) => question.status === "open").map((question) => <div className="mt-4 grid gap-2 border-t border-sky-100 pt-4" key={`reply-${question.id}`}>
+        <p className="text-sm font-semibold text-slate-800">Reply to {question.authorName}’s question</p>
+        <textarea className={`${fieldClass} min-h-20 resize-y`} value={replyValues[question.id] || ""} maxLength={1000} placeholder="Write your reply" onChange={(event) => setReplyValues((values) => ({ ...values, [question.id]: event.target.value }))} />
+        <button className={`${primaryButton} justify-self-start`} type="button" onClick={() => void sendReply(question.id)}>Send reply</button>
+      </div>) : null}
+      {canDiscuss && isReceiver && questions.some((question) => question.status === "open") ? <p className="mt-3 text-xs font-semibold text-amber-700">Waiting for the feedback giver’s reply.</p> : null}
+      {notice ? <p className="mt-3 text-sm font-medium text-red-700">{notice}</p> : null}
+    </section>
   );
 }
 
@@ -1084,22 +1473,41 @@ function FeedbackHistory({ request }) {
   if (request.status === "closed") {
     history.push({
       id: "closed",
-      title: "Request closed",
-      description: `${request.requesterName} closed this feedback process`,
+      title: "Feedback completed",
+      description: `${request.requesterName} completed this feedback process`,
       time: request.updatedAt,
+      tone: "green",
+    });
+  }
+  if (request.status === "cancelled") {
+    history.push({
+      id: "cancelled",
+      title: "Request cancelled",
+      description: `${request.requesterName} cancelled this feedback request`,
+      time: request.updatedAt,
+      tone: "red",
+    });
+  }
+  if (request.status === "declined") {
+    history.push({
+      id: "declined",
+      title: "Request declined",
+      description: `${request.giverName} declined this feedback request${request.declineReason ? `: ${request.declineReason}` : ""}${request.alternateGiverName ? `. Suggested reviewer: ${request.alternateGiverName}` : ""}`,
+      time: request.updatedAt,
+      tone: "red",
     });
   }
 
   return (
     <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-      <p className="font-semibold text-slate-900">Feedback history</p>
+      <p className="font-semibold text-slate-900">Request timeline</p>
       <ol className="mt-4 grid gap-4 border-l-2 border-blue-200 pl-5">
         {history
           .filter((item) => item.time)
           .sort((first, second) => new Date(first.time) - new Date(second.time))
           .map((item) => (
             <li className="relative" key={item.id}>
-              <span className="absolute -left-[1.85rem] top-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-600" />
+              <span className={`absolute -left-[1.95rem] top-1 h-4 w-4 rounded-full border-2 border-white ${item.tone === "red" ? "bg-red-500" : item.tone === "green" ? "bg-emerald-500" : item.tone === "orange" ? "bg-amber-500" : "bg-blue-600"}`} />
               <p className="font-semibold text-slate-900">{item.title}</p>
               <p className="mt-1 text-sm text-slate-600">{item.description}</p>
               <p className="mt-1 text-xs font-medium text-slate-500">{formatHistoryTime(item.time)}</p>
@@ -1162,19 +1570,21 @@ function FollowUpCard({ followUp, request, currentUserId, onUpdate }) {
 function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate }) {
   const isGiver = Number(row.giverId) === Number(currentUserId);
   const isRequester = Number(row.requesterId) === Number(currentUserId);
+  const isReceiver = Number(row.receiverId) === Number(currentUserId);
   const buttonClass = "rounded-md border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50";
   const destructiveButtonClass = "rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50";
 
-  if (isGiver && ["requested", "overdue"].includes(row.status)) {
+  if (isGiver && ["requested", "in_progress", "overdue"].includes(row.status)) {
     return (
       <div className="flex gap-2">
+        {row.status !== "in_progress" ? <button className={buttonClass} type="button" onClick={() => onAction("start")}>Start</button> : null}
         <button className={buttonClass} type="button" onClick={onView}>Fill</button>
         <button className={destructiveButtonClass} type="button" onClick={() => onAction("decline")}>Decline</button>
       </div>
     );
   }
 
-  if (isRequester && ["requested", "overdue"].includes(row.status)) {
+  if (isRequester && ["requested", "in_progress", "overdue"].includes(row.status)) {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onEditDueDate}>Edit due date</button>
@@ -1183,7 +1593,7 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
     );
   }
 
-  if (isRequester && row.status === "submitted") {
+  if (isReceiver && row.status === "submitted") {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
@@ -1192,7 +1602,7 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
     );
   }
 
-  if (isRequester && row.status === "acknowledged") {
+  if ((isRequester || isReceiver) && ["acknowledged", "follow_up_needed"].includes(row.status)) {
     return (
       <div className="flex gap-2">
         <button className={buttonClass} type="button" onClick={onView}>View Feedback</button>
@@ -1220,7 +1630,9 @@ function statusClass(status) {
   const base = "status-pill";
   if (status === "submitted") return `${base} bg-green-100 text-green-700`;
   if (status === "acknowledged") return `${base} bg-violet-100 text-violet-700`;
-  if (status === "closed") return `${base} bg-slate-200 text-slate-700`;
+  if (status === "follow_up_needed") return `${base} bg-amber-100 text-amber-800`;
+  if (status === "closed") return `${base} bg-emerald-100 text-emerald-700`;
+  if (status === "in_progress") return `${base} bg-cyan-100 text-cyan-800`;
   if (status === "overdue") return `${base} bg-amber-100 text-amber-800`;
   if (status === "declined" || status === "cancelled") return `${base} bg-red-100 text-red-700`;
   return `${base} bg-blue-50 text-blue-700`;
@@ -1236,6 +1648,11 @@ function toTableRow(request) {
     giverId: request.giverId,
     giverName: request.giverName,
     giverInitials: initialsForName(request.giverName),
+    receiverId: request.receiverId,
+    templateId: request.templateId,
+    rawPurpose: request.purpose,
+    alternateGiverId: request.alternateGiverId,
+    alternateGiverName: request.alternateGiverName,
     type: request.templateName,
     purpose: formatPurpose(request.purpose),
     dueDate: formatDueDate(request.dueDate),

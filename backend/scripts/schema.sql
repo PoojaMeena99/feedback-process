@@ -75,6 +75,38 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id CHAR(36) PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash VARCHAR(255) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id CHAR(36) PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash VARCHAR(255) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+SET @add_email_verified_at_column = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL AFTER is_active',
+    'DO 0')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'email_verified_at'
+);
+PREPARE add_email_verified_at_column_statement FROM @add_email_verified_at_column;
+EXECUTE add_email_verified_at_column_statement;
+DEALLOCATE PREPARE add_email_verified_at_column_statement;
+
 CREATE TABLE IF NOT EXISTS feedback_templates (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
@@ -96,19 +128,43 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
   requester_id INT NOT NULL,
   giver_id INT NOT NULL,
+  receiver_id INT NOT NULL,
   template_id INT NOT NULL,
   message TEXT,
   due_date DATE NULL,
   purpose VARCHAR(40) NULL,
   visibility VARCHAR(30) NOT NULL DEFAULT 'private',
+  alternate_giver_id INT NULL,
+  hidden_at TIMESTAMP NULL,
+  hidden_by INT NULL,
+  hidden_reason TEXT NULL,
+  removed_at TIMESTAMP NULL,
+  removed_by INT NULL,
+  removed_reason TEXT NULL,
   status VARCHAR(30) DEFAULT 'requested',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   FOREIGN KEY (requester_id) REFERENCES users(id),
   FOREIGN KEY (giver_id) REFERENCES users(id),
+  FOREIGN KEY (receiver_id) REFERENCES users(id),
+  FOREIGN KEY (alternate_giver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
+
+-- Moderation is a soft action: the original feedback is retained for audit.
+SET @add_hidden_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_at TIMESTAMP NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_at');
+PREPARE add_hidden_at_column_statement FROM @add_hidden_at_column; EXECUTE add_hidden_at_column_statement; DEALLOCATE PREPARE add_hidden_at_column_statement;
+SET @add_removed_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_at TIMESTAMP NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_at');
+PREPARE add_removed_at_column_statement FROM @add_removed_at_column; EXECUTE add_removed_at_column_statement; DEALLOCATE PREPARE add_removed_at_column_statement;
+SET @add_hidden_by_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_by INT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_by');
+PREPARE add_hidden_by_column_statement FROM @add_hidden_by_column; EXECUTE add_hidden_by_column_statement; DEALLOCATE PREPARE add_hidden_by_column_statement;
+SET @add_hidden_reason_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_reason TEXT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_reason');
+PREPARE add_hidden_reason_column_statement FROM @add_hidden_reason_column; EXECUTE add_hidden_reason_column_statement; DEALLOCATE PREPARE add_hidden_reason_column_statement;
+SET @add_removed_by_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_by INT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_by');
+PREPARE add_removed_by_column_statement FROM @add_removed_by_column; EXECUTE add_removed_by_column_statement; DEALLOCATE PREPARE add_removed_by_column_statement;
+SET @add_removed_reason_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN removed_reason TEXT NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'removed_reason');
+PREPARE add_removed_reason_column_statement FROM @add_removed_reason_column; EXECUTE add_removed_reason_column_statement; DEALLOCATE PREPARE add_removed_reason_column_statement;
 
 SET @add_due_date_column = (
   SELECT IF(
@@ -139,6 +195,18 @@ SET @add_purpose_column = (
 PREPARE add_purpose_column_statement FROM @add_purpose_column;
 EXECUTE add_purpose_column_statement;
 DEALLOCATE PREPARE add_purpose_column_statement;
+
+SET @add_receiver_id_column = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN receiver_id INT NULL AFTER giver_id',
+    'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'receiver_id'
+);
+PREPARE add_receiver_id_column_statement FROM @add_receiver_id_column;
+EXECUTE add_receiver_id_column_statement;
+DEALLOCATE PREPARE add_receiver_id_column_statement;
+UPDATE feedback_requests SET receiver_id = requester_id WHERE receiver_id IS NULL;
 
 SET @add_visibility_column = (
   SELECT IF(
@@ -200,6 +268,21 @@ PREPARE add_decline_reason_column_statement FROM @add_decline_reason_column;
 EXECUTE add_decline_reason_column_statement;
 DEALLOCATE PREPARE add_decline_reason_column_statement;
 
+SET @add_alternate_giver_id_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN alternate_giver_id INT NULL AFTER decline_reason',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'alternate_giver_id'
+);
+PREPARE add_alternate_giver_id_column_statement FROM @add_alternate_giver_id_column;
+EXECUTE add_alternate_giver_id_column_statement;
+DEALLOCATE PREPARE add_alternate_giver_id_column_statement;
+
 SET @add_acknowledged_at_column = (
   SELECT IF(
     COUNT(*) = 0,
@@ -214,6 +297,121 @@ SET @add_acknowledged_at_column = (
 PREPARE add_acknowledged_at_column_statement FROM @add_acknowledged_at_column;
 EXECUTE add_acknowledged_at_column_statement;
 DEALLOCATE PREPARE add_acknowledged_at_column_statement;
+
+CREATE TABLE IF NOT EXISTS feedback_discussions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  parent_id INT NULL,
+  author_id INT NOT NULL,
+  type VARCHAR(30) NOT NULL,
+  message TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  resolved_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (parent_id) REFERENCES feedback_discussions(id),
+  FOREIGN KEY (author_id) REFERENCES users(id)
+);
+
+-- Keeps automated reminders idempotent: restarting the API must not send the
+-- same due-date reminder or overdue alert again.
+CREATE TABLE IF NOT EXISTS feedback_notification_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  notification_key VARCHAR(100) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_feedback_notification (request_id, notification_key),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_request_schedules (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  requester_id INT NOT NULL,
+  giver_id INT NOT NULL,
+  receiver_id INT NOT NULL,
+  template_id INT NOT NULL,
+  message TEXT NULL,
+  purpose VARCHAR(40) NULL,
+  visibility VARCHAR(30) NOT NULL DEFAULT 'private',
+  frequency VARCHAR(20) NOT NULL,
+  scheduled_time TIME NULL,
+  due_in_days INT NOT NULL DEFAULT 7,
+  next_run_date DATE NOT NULL,
+  end_date DATE NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (requester_id) REFERENCES users(id),
+  FOREIGN KEY (giver_id) REFERENCES users(id),
+  FOREIGN KEY (receiver_id) REFERENCES users(id),
+  FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
+);
+
+SET @add_scheduled_time_column = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE feedback_request_schedules ADD COLUMN scheduled_time TIME NULL AFTER frequency',
+    'DO 0')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'feedback_request_schedules' AND column_name = 'scheduled_time'
+);
+PREPARE add_scheduled_time_column_statement FROM @add_scheduled_time_column;
+EXECUTE add_scheduled_time_column_statement;
+DEALLOCATE PREPARE add_scheduled_time_column_statement;
+
+CREATE TABLE IF NOT EXISTS feedback_schedule_viewers (
+  schedule_id INT NOT NULL,
+  user_id INT NOT NULL,
+  PRIMARY KEY (schedule_id, user_id),
+  FOREIGN KEY (schedule_id) REFERENCES feedback_request_schedules(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS user_notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  request_id INT NULL,
+  type VARCHAR(40) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  message TEXT NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  INDEX user_notifications_inbox (user_id, is_read, created_at)
+);
+
+-- A private safety record. The feedback itself remains unchanged while an
+-- admin/HR reviewer investigates the report.
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  reporter_id INT NOT NULL,
+  reason VARCHAR(40) NOT NULL,
+  details TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  reviewed_by INT NULL,
+  reviewed_at TIMESTAMP NULL,
+  resolution_note TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_feedback_reporter (request_id, reporter_id),
+  INDEX feedback_reports_review_queue (status, created_at),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (reporter_id) REFERENCES users(id),
+  FOREIGN KEY (reviewed_by) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_audit_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  actor_id INT NULL,
+  event_type VARCHAR(60) NOT NULL,
+  details TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX feedback_audit_request (request_id, created_at),
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (actor_id) REFERENCES users(id)
+);
 
 CREATE TABLE IF NOT EXISTS feedback_answers (
   id INT AUTO_INCREMENT PRIMARY KEY,

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 
 import { getDatabasePool } from "../db/connection.js";
+import { sendEmailVerificationEmail, sendPasswordResetEmail } from "../integrations/email.js";
 import { ServiceError } from "./serviceError.js";
 
 const tokenLifetime = "7d";
@@ -82,8 +83,8 @@ export async function registerUser({ name, email, password }) {
     }
 
     const [result] = await connection.execute(
-      `INSERT INTO users (name, email, password_hash, role)
-       VALUES (?, ?, ?, 'member')`,
+      `INSERT INTO users (name, email, password_hash, role, is_active)
+       VALUES (?, ?, ?, 'member', FALSE)`,
       [name.trim(), normalizedEmail, passwordHash],
     );
 
@@ -93,8 +94,15 @@ export async function registerUser({ name, email, password }) {
       email: normalizedEmail,
       role: "member",
     };
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await connection.execute(
+      "INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))",
+      [crypto.randomUUID(), user.id, tokenHash],
+    );
     await connection.commit();
-
+    const frontendOrigin = (process.env.FRONTEND_ORIGIN || "http://localhost:3000").split(",")[0].trim();
+    await sendEmailVerificationEmail({ email: user.email, name: user.name, verificationUrl: `${frontendOrigin}/verify-email?token=${token}` });
     return user;
   } catch (error) {
     await connection.rollback();
@@ -116,7 +124,7 @@ export async function loginUser({ email, password }) {
 
   try {
     const [[user]] = await connection.execute(
-      `SELECT id, name, email, role, password_hash AS passwordHash
+      `SELECT id, name, email, role, is_active AS isActive, password_hash AS passwordHash
        FROM users
        WHERE email = ?`,
       [normalizedEmail],
@@ -124,6 +132,9 @@ export async function loginUser({ email, password }) {
 
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new ServiceError(401, "Email or password is incorrect");
+    }
+    if (!user.isActive) {
+      throw new ServiceError(403, "Please verify your email address before logging in.");
     }
 
     await connection.beginTransaction();
@@ -158,7 +169,7 @@ export async function authenticateToken(token) {
 
   const pool = getDatabasePool();
   const [[session]] = await pool.execute(
-    `SELECT user.id, user.name, user.email, user.role, session.id AS sessionId
+    `SELECT user.id, user.name, user.email, user.role, user.is_active AS isActive, session.id AS sessionId
      FROM auth_sessions AS session
      JOIN users AS user ON user.id = session.user_id
      WHERE session.id = ?
@@ -171,6 +182,9 @@ export async function authenticateToken(token) {
   if (!session) {
     throw new ServiceError(401, "Your session is no longer active");
   }
+  if (!session.isActive) {
+    throw new ServiceError(403, "This account has been deactivated. Please contact the administrator.");
+  }
 
   return { user: publicUser(session), sessionId: session.sessionId };
 }
@@ -181,4 +195,134 @@ export async function logoutUser(sessionId) {
     "UPDATE auth_sessions SET revoked_at = NOW() WHERE id = ? AND revoked_at IS NULL",
     [sessionId],
   );
+}
+
+export async function verifyEmail({ token }) {
+  if (typeof token !== "string" || !token.trim()) throw new ServiceError(400, "Verification token is required");
+  const tokenHash = crypto.createHash("sha256").update(token.trim()).digest("hex");
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[verification]] = await connection.execute(
+      `SELECT id, user_id AS userId FROM email_verification_tokens
+       WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() FOR UPDATE`, [tokenHash],
+    );
+    if (!verification) throw new ServiceError(400, "This verification link is invalid or expired");
+    await connection.execute("UPDATE users SET is_active = TRUE, email_verified_at = NOW() WHERE id = ?", [verification.userId]);
+    await connection.execute("UPDATE email_verification_tokens SET used_at = NOW() WHERE id = ?", [verification.id]);
+    await connection.commit();
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+}
+export async function createPasswordResetRequest({ email }) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+    throw new ServiceError(400, "email must be valid");
+  }
+
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+
+  try {
+    const [[user]] = await connection.execute(
+      "SELECT id, name, email FROM users WHERE email = ? AND is_active = TRUE",
+      [normalizedEmail],
+    );
+
+    // Keep the same API response even when this email has no account.
+    if (!user) return;
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    await connection.beginTransaction();
+    await connection.execute(
+      "DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL",
+      [user.id],
+    );
+    await connection.execute(
+      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
+      [crypto.randomUUID(), user.id, tokenHash, expiresAt],
+    );
+    await connection.commit();
+
+    const frontendOrigin = (process.env.FRONTEND_ORIGIN || "http://localhost:3000")
+      .split(",")[0]
+      .trim();
+    const resetUrl = `${frontendOrigin}/reset-password?token=${token}`;
+
+    try {
+      await sendPasswordResetEmail({
+        email: user.email,
+        name: user.name,
+        resetUrl,
+      });
+    } catch (error) {
+      await connection.execute(
+        "DELETE FROM password_reset_tokens WHERE token_hash = ?",
+        [tokenHash],
+      );
+      throw error;
+    }
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function resetUserPassword({ token, newPassword }) {
+  if (typeof token !== "string" || !token.trim()) {
+    throw new ServiceError(400, "reset token is required");
+  }
+
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    throw new ServiceError(400, "newPassword must contain at least 8 characters");
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(token.trim()).digest("hex");
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  const pool = getDatabasePool();
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const [[resetToken]] = await connection.execute(
+      `SELECT id, user_id AS userId
+       FROM password_reset_tokens
+       WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()
+       FOR UPDATE`,
+      [tokenHash],
+    );
+
+    if (!resetToken) {
+      throw new ServiceError(400, "Reset link is invalid or has expired");
+    }
+
+    const [updateUserResult] = await connection.execute(
+      "UPDATE users SET password_hash = ? WHERE id = ? AND is_active = TRUE",
+      [passwordHash, resetToken.userId],
+    );
+    if (updateUserResult.affectedRows !== 1) {
+      throw new ServiceError(400, "This account is inactive");
+    }
+
+    await connection.execute(
+      "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?",
+      [resetToken.id],
+    );
+    await connection.execute(
+      "UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL",
+      [resetToken.userId],
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }

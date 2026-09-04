@@ -1,8 +1,11 @@
 import {
   authenticateToken,
+  createPasswordResetRequest,
   loginUser,
   logoutUser,
   registerUser,
+  resetUserPassword,
+  verifyEmail,
 } from "../services/authService.js";
 import { respondWithError } from "./respondWithError.js";
 
@@ -55,6 +58,35 @@ export async function login(req, res) {
   } catch (error) {
     return respondWithError(res, error);
   }
+}
+
+export async function forgotPassword(req, res) {
+  try {
+    await createPasswordResetRequest(req.body);
+    return res.status(200).json({
+      message: "If this email exists, a reset link has been sent.",
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function resetPassword(req, res) {
+  try {
+    await resetUserPassword(req.body);
+    return res.status(200).json({
+      message: "Password reset successful. Please log in with your new password.",
+    });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function verifyEmailAddress(req, res) {
+  try {
+    await verifyEmail(req.body);
+    return res.status(200).json({ message: "Email verified. You can now log in." });
+  } catch (error) { return respondWithError(res, error); }
 }
 
 export async function requireAuth(req, res, next) {

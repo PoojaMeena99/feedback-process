@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowRight, LockKeyhole } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LockKeyhole } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -82,6 +82,9 @@ export default function LoginPage() {
               type="password"
               value={form.password}
             />
+            <Link className="-mt-2 justify-self-end text-sm font-semibold text-[#36429a] hover:underline" href="/forgot-password">
+              Forgot password?
+            </Link>
 
             {error ? <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
@@ -108,11 +111,14 @@ export default function LoginPage() {
 }
 
 function AuthField({ autoComplete, id, label, onChange, placeholder, type, value }) {
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const isPasswordField = type === "password";
+
   return (
     <label className="grid gap-2" htmlFor={id}>
       <span className="text-sm font-semibold text-slate-800">{label}</span>
       <span className="relative">
-        {type === "password" ? (
+        {isPasswordField ? (
           <LockKeyhole
             aria-hidden="true"
             className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
@@ -122,16 +128,26 @@ function AuthField({ autoComplete, id, label, onChange, placeholder, type, value
         <input
           autoComplete={autoComplete}
           className={`min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-[#4c57a7] focus:ring-4 focus:ring-indigo-100 ${
-            type === "password" ? "pl-11" : ""
+            isPasswordField ? "pl-11 pr-11" : ""
           }`}
           id={id}
           name={id}
           onChange={onChange}
           placeholder={placeholder}
           required
-          type={type}
+          type={isPasswordField && isPasswordVisible ? "text" : type}
           value={value}
         />
+        {isPasswordField ? (
+          <button
+            aria-label={isPasswordVisible ? "Hide password" : "Show password"}
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-[#252d70] focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            onClick={() => setIsPasswordVisible((visible) => !visible)}
+            type="button"
+          >
+            {isPasswordVisible ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
+          </button>
+        ) : null}
       </span>
     </label>
   );

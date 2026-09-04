@@ -8,6 +8,9 @@ import authRouter from "./routes/authRoutes.js";
 import feedbackRequestRouter from "./routes/feedbackRequestRoutes.js";
 import templateRouter from "./routes/templateRoutes.js";
 import userRouter from "./routes/userRoutes.js";
+import notificationRouter from "./routes/notificationRoutes.js";
+import feedbackReportRouter from "./routes/feedbackReportRoutes.js";
+import { startFeedbackReminderJob } from "./jobs/feedbackReminderJob.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -43,6 +46,8 @@ app.use(express.json());
 app.use("/health", healthRouter);
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
+app.use("/notifications", notificationRouter);
+app.use("/feedback-reports", feedbackReportRouter);
 app.use("/templates", templateRouter);
 app.use("/feedback-requests", feedbackRequestRouter);
 
@@ -52,4 +57,5 @@ app.use((req, res) => {
 
 app.listen(port, () => {
   console.log(`Feedback Process API running at http://localhost:${port}`);
+  startFeedbackReminderJob();
 });

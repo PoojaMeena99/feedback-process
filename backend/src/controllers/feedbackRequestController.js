@@ -3,16 +3,24 @@ import {
   createFeedbackRequest as createFeedbackRequestInDatabase,
   getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
   getRequestsForGiver as getRequestsForGiverFromDatabase,
+  getRequestsForReceiver as getRequestsForReceiverFromDatabase,
   getRequestsForRequester as getRequestsForRequesterFromDatabase,
   getRequestsVisibleTo as getRequestsVisibleToFromDatabase,
   performFeedbackRequestAction as performFeedbackRequestActionInDatabase,
   createFollowUp as createFollowUpInDatabase,
+  createFeedbackDiscussion as createFeedbackDiscussionInDatabase,
   updateFollowUp as updateFollowUpInDatabase,
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
+import { writeFeedbackAuditEvent } from "../services/feedbackAuditService.js";
+import {
+  createFeedbackSchedule as createFeedbackScheduleInDatabase,
+  getFeedbackSchedules as getFeedbackSchedulesFromDatabase,
+  updateFeedbackScheduleStatus as updateFeedbackScheduleStatusInDatabase,
+} from "../services/feedbackScheduleService.js";
 
-const allowedActions = ["decline", "cancel", "acknowledge", "close"];
+const allowedActions = ["start", "decline", "cancel", "acknowledge", "close", "hide", "remove", "reopen"];
 
 function parsePositiveInteger(value) {
   const parsedValue = Number(value);
@@ -25,6 +33,9 @@ export async function createFeedbackRequest(req, res) {
   const templateId = parsePositiveInteger(req.body.templateId);
   const { message, dueDate, purpose, visibility, viewerIds } = req.body;
 
+  if (req.auth.user.role === "external") {
+    return res.status(403).json({ message: "External collaborators can only respond to feedback sent to them." });
+  }
   if (!giverId || !templateId) {
     return res.status(400).json({
       message: "giverId and templateId must be positive integers",
@@ -35,6 +46,7 @@ export async function createFeedbackRequest(req, res) {
     const feedbackRequest = await createFeedbackRequestInDatabase({
       requesterId,
       giverId,
+      receiverId: requesterId,
       templateId,
       message,
       dueDate,
@@ -50,6 +62,47 @@ export async function createFeedbackRequest(req, res) {
   } catch (error) {
     return respondWithError(res, error);
   }
+}
+
+export async function createFeedbackSchedule(req, res) {
+  try {
+    if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot create feedback schedules." });
+    req.body.receiverId = req.auth.user.id;
+    const schedule = await createFeedbackScheduleInDatabase(req.body, req.auth.user.id);
+    return res.status(201).json({ message: "Recurring feedback schedule saved", schedule });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function getFeedbackSchedules(req, res) {
+  try {
+    const schedules = await getFeedbackSchedulesFromDatabase(req.auth.user.id);
+    return res.status(200).json({ schedules });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function updateFeedbackScheduleStatus(req, res) {
+  const scheduleId = parsePositiveInteger(req.params.scheduleId);
+  if (!scheduleId) return res.status(400).json({ message: "Schedule ID must be a positive integer" });
+  try {
+    const schedule = await updateFeedbackScheduleStatusInDatabase(scheduleId, req.auth.user.id, req.body.isActive);
+    return res.status(200).json({ message: "Recurring feedback schedule updated", schedule });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function getRequestsForReceiver(req, res) {
+  const receiverId = parsePositiveInteger(req.params.userId);
+  if (!receiverId) return res.status(400).json({ message: "User ID must be a positive integer" });
+  if (receiverId !== req.auth.user.id) return res.status(403).json({ message: "You can only view feedback requests received by you" });
+  try {
+    const feedbackRequests = await getRequestsForReceiverFromDatabase(receiverId);
+    return res.status(200).json({ feedbackRequests });
+  } catch (error) { return respondWithError(res, error); }
 }
 
 export async function getRequestsForGiver(req, res) {
@@ -85,6 +138,7 @@ export async function getRequestsForRequester(req, res) {
   if (requesterId !== req.auth.user.id) {
     return res.status(403).json({ message: "You can only view feedback requests created by you" });
   }
+  if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot browse feedback history." });
 
   try {
     const feedbackRequests =
@@ -99,6 +153,7 @@ export async function getRequestsVisibleTo(req, res) {
   const viewerId = parsePositiveInteger(req.params.userId);
   if (!viewerId) return res.status(400).json({ message: "User ID must be a positive integer" });
   if (viewerId !== req.auth.user.id) return res.status(403).json({ message: "You can only view requests shared with you" });
+  if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot browse shared feedback." });
   try {
     const feedbackRequests = await getRequestsVisibleToFromDatabase(viewerId);
     return res.status(200).json({ feedbackRequests });
@@ -121,8 +176,14 @@ export async function getFeedbackRequestById(req, res) {
       await getFeedbackRequestByIdFromDatabase(requestId);
 
     const hasViewerAccess = feedbackRequest.viewers.some((viewer) => viewer.userId === req.auth.user.id);
-    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && !hasViewerAccess) {
+    const isModerator = ["admin", "hr", "sc"].includes(String(req.auth.user.role).toLowerCase());
+    if (feedbackRequest.requesterId !== req.auth.user.id && feedbackRequest.giverId !== req.auth.user.id && feedbackRequest.receiverId !== req.auth.user.id && !hasViewerAccess && !isModerator) {
       return res.status(403).json({ message: "You do not have access to this feedback request" });
+    }
+    // The client marks only deliberate opens. Background refreshes must never
+    // create a noisy, misleading view history.
+    if (req.query.recordView === "true") {
+      await writeFeedbackAuditEvent({ requestId, actorId: req.auth.user.id, eventType: "feedback_viewed" });
     }
     return res.status(200).json({ feedbackRequest });
   } catch (error) {
@@ -189,6 +250,28 @@ export async function createFollowUp(req, res) {
   }
 }
 
+export async function createFeedbackDiscussion(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  const { type, message, parentId } = req.body;
+  const normalizedParentId = parentId === undefined || parentId === null || parentId === "" ? null : parsePositiveInteger(parentId);
+  if (!requestId) return res.status(400).json({ message: "Request ID must be a positive integer" });
+  if (parentId !== undefined && parentId !== null && parentId !== "" && !normalizedParentId) {
+    return res.status(400).json({ message: "parentId must be a positive integer" });
+  }
+  try {
+    const feedbackRequest = await createFeedbackDiscussionInDatabase({
+      requestId,
+      actorId: req.auth.user.id,
+      type,
+      message,
+      parentId: normalizedParentId,
+    });
+    return res.status(201).json({ message: "Feedback discussion saved", feedbackRequest });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
 export async function updateFollowUp(req, res) {
   const followUpId = parsePositiveInteger(req.params.followUpId);
   const { status, progressNote } = req.body;
@@ -203,7 +286,10 @@ export async function updateFollowUp(req, res) {
 
 export async function performFeedbackRequestAction(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
-  const { action, acknowledgementComment, declineReason } = req.body;
+  const { action, acknowledgementComment, declineReason, moderationReason, alternateGiverId: submittedAlternateGiverId } = req.body;
+  const alternateGiverId = submittedAlternateGiverId === undefined || submittedAlternateGiverId === null || submittedAlternateGiverId === ""
+    ? null
+    : parsePositiveInteger(submittedAlternateGiverId);
 
   if (!requestId) {
     return res.status(400).json({
@@ -213,8 +299,12 @@ export async function performFeedbackRequestAction(req, res) {
 
   if (!allowedActions.includes(action)) {
     return res.status(400).json({
-      message: "action must be decline, cancel, acknowledge, or close",
+      message: "action must be start, decline, cancel, acknowledge, or close",
     });
+  }
+
+  if (submittedAlternateGiverId !== undefined && submittedAlternateGiverId !== null && submittedAlternateGiverId !== "" && !alternateGiverId) {
+    return res.status(400).json({ message: "alternateGiverId must be a positive integer" });
   }
 
   if (acknowledgementComment !== undefined && typeof acknowledgementComment !== "string") {
@@ -232,6 +322,9 @@ export async function performFeedbackRequestAction(req, res) {
   if (action === "decline" && declineReason?.trim().length < 3) {
     return res.status(400).json({ message: "Please provide a decline reason of at least 3 characters" });
   }
+  if (["hide", "remove", "reopen"].includes(action) && (!moderationReason || moderationReason.trim().length < 3)) {
+    return res.status(400).json({ message: "Please provide a reason of at least 3 characters" });
+  }
 
   if (declineReason && declineReason.trim().length > 500) {
     return res.status(400).json({ message: "Decline reason must be 500 characters or less" });
@@ -244,6 +337,8 @@ export async function performFeedbackRequestAction(req, res) {
       action,
       acknowledgementComment?.trim() || null,
       declineReason?.trim() || null,
+      alternateGiverId,
+      moderationReason?.trim() || null,
     );
 
     return res.status(200).json({

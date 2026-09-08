@@ -454,6 +454,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   const possibleGivers = users.filter((user) => user.id !== currentUserId);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
+  const selectedTemplateId = useRef("");
   const [message, setMessage] = useState(
     "Please share feedback for my learning progress.",
   );
@@ -474,8 +475,10 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   }, [currentUserId, giverId, possibleGivers]);
 
   useEffect(() => {
-    if (!templates.some((template) => template.id === Number(templateId))) {
-      setTemplateId(templates[0]?.id ?? "");
+    if (!templateId && templates[0]?.id) {
+      const firstTemplateId = String(templates[0].id);
+      selectedTemplateId.current = firstTemplateId;
+      setTemplateId(firstTemplateId);
     }
   }, [templateId, templates]);
 
@@ -505,7 +508,9 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
 
     if (!result.ok) return result;
 
-    setTemplateId(String(result.template.id));
+    const newTemplateId = String(result.template.id);
+    selectedTemplateId.current = newTemplateId;
+    setTemplateId(newTemplateId);
     setCustomTemplateName("");
     setCustomTemplateDescription("");
     setCustomQuestions(["", "", ""]);
@@ -522,7 +527,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       return;
     }
 
-    let requestTemplateId = Number(templateId);
+    let requestTemplateId = Number(selectedTemplateId.current || templateId);
 
     if (hasCustomTemplateDraft()) {
       setIsSavingTemplate(true);
@@ -608,7 +613,14 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
 
         <Field label="Feedback type">
           <SelectShell>
-            <select className="w-full bg-transparent outline-none" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+            <select
+              className="w-full bg-transparent outline-none"
+              value={templateId}
+              onChange={(event) => {
+                selectedTemplateId.current = event.target.value;
+                setTemplateId(event.target.value);
+              }}
+            >
               {templates.map((template) => (
                 <option key={template.id} value={template.id}>
                   {template.name}

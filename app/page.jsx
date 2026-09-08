@@ -479,6 +479,40 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
     }
   }, [templateId, templates]);
 
+  function hasCustomTemplateDraft() {
+    return Boolean(
+      isCustomTemplateOpen
+        && (customTemplateName.trim() || customTemplateDescription.trim() || customQuestions.some((question) => question.trim())),
+    );
+  }
+
+  async function saveCustomTemplateDraft() {
+    const questions = customQuestions.map((question) => question.trim()).filter(Boolean);
+
+    if (customTemplateName.trim().length < 3) {
+      return { ok: false, message: "Template name must contain at least 3 characters." };
+    }
+
+    if (questions.length < 1) {
+      return { ok: false, message: "Add at least one question for the custom template." };
+    }
+
+    const result = await onCreateTemplate({
+      name: customTemplateName,
+      description: customTemplateDescription,
+      questions,
+    });
+
+    if (!result.ok) return result;
+
+    setTemplateId(String(result.template.id));
+    setCustomTemplateName("");
+    setCustomTemplateDescription("");
+    setCustomQuestions(["", "", ""]);
+    setIsCustomTemplateOpen(false);
+    return { ok: true, templateId: result.template.id };
+  }
+
   async function submit(event) {
     event.preventDefault();
     if (!giverId || Number(giverId) === currentUserId) return;
@@ -487,7 +521,31 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       setNotice("Due date cannot be in the past.");
       return;
     }
-    const result = await onCreate({ giverId: Number(giverId), templateId: Number(templateId), message, dueDate });
+
+    let requestTemplateId = Number(templateId);
+
+    if (hasCustomTemplateDraft()) {
+      setIsSavingTemplate(true);
+      setNotice(null);
+      const templateResult = await saveCustomTemplateDraft();
+      setIsSavingTemplate(false);
+
+      if (!templateResult.ok) {
+        setNoticeTone("error");
+        setNotice(templateResult.message);
+        return;
+      }
+
+      requestTemplateId = Number(templateResult.templateId);
+    }
+
+    if (!requestTemplateId) {
+      setNoticeTone("error");
+      setNotice("Please select a feedback type.");
+      return;
+    }
+
+    const result = await onCreate({ giverId: Number(giverId), templateId: requestTemplateId, message, dueDate });
     if (result.ok) {
       onClose();
       return;
@@ -511,28 +569,10 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
   }
 
   async function saveCustomTemplate() {
-    const questions = customQuestions.map((question) => question.trim()).filter(Boolean);
-
-    if (customTemplateName.trim().length < 3) {
-      setNoticeTone("error");
-      setNotice("Template name must contain at least 3 characters.");
-      return;
-    }
-
-    if (questions.length < 1) {
-      setNoticeTone("error");
-      setNotice("Add at least one question for the custom template.");
-      return;
-    }
-
     setIsSavingTemplate(true);
     setNotice(null);
 
-    const result = await onCreateTemplate({
-      name: customTemplateName,
-      description: customTemplateDescription,
-      questions,
-    });
+    const result = await saveCustomTemplateDraft();
 
     setIsSavingTemplate(false);
 
@@ -542,11 +582,6 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, onC
       return;
     }
 
-    setTemplateId(result.template.id);
-    setCustomTemplateName("");
-    setCustomTemplateDescription("");
-    setCustomQuestions(["", "", ""]);
-    setIsCustomTemplateOpen(false);
     setNoticeTone("success");
     setNotice("Custom template saved. It is now selected as the feedback type.");
   }

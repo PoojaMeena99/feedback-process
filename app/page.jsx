@@ -12,6 +12,7 @@ import {
   Plus,
   Send,
   Sparkles,
+  UsersRound,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
@@ -305,6 +306,18 @@ export default function Home() {
     } catch (reportError) { setError(reportError.message); }
   }
 
+  async function updateUserStatus(user, isActive) {
+    const action = isActive ? "reactivate" : "deactivate";
+    if (!window.confirm(`Do you want to ${action} ${user.name}'s account? Open requests involving this person will be updated when deactivated.`)) return;
+    try {
+      const result = await api(`/users/${user.id}/status`, { method: "PATCH", body: JSON.stringify({ isActive }) });
+      setUsers((current) => current.map((item) => item.id === user.id ? { ...item, isActive: result.user.isActive } : item));
+      setError("");
+      window.alert(result.message);
+      await loadRequests(currentUserId);
+    } catch (userError) { setError(userError.message); }
+  }
+
   async function updateFollowUp(requestId, followUpId, payload) {
     try {
       await api(`/feedback-requests/${requestId}/follow-ups/${followUpId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -368,8 +381,8 @@ export default function Home() {
                 <Sparkles size={15} />
                 Feedback workspace
               </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : activePage === "reports" ? "SC Team Review" : "Feedback Requests"}</h1>
-              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : activePage === "reports" ? "Private reports that need SC Team review." : "Review, manage, and respond to every feedback request."}</p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : activePage === "reports" ? "SC Team Review" : activePage === "people" ? "People" : "Feedback Requests"}</h1>
+              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : activePage === "reports" ? "Private reports that need SC Team review." : activePage === "people" ? "Manage account access and keep open feedback requests accurate." : "Review, manage, and respond to every feedback request."}</p>
             </div>
           </div>
 
@@ -407,6 +420,7 @@ export default function Home() {
           </> : null}
 
           {activePage === "reports" && isSCReviewer ? <SCReportReview reports={reports} onReview={(reportId, status) => void reviewReport(reportId, status)} onOpenRequest={(requestId) => void openRequest(requestId)} /> : null}
+          {activePage === "people" && isSCReviewer ? <PeopleManagement users={users} currentUserId={currentUserId} onUpdateStatus={(user, isActive) => void updateUserStatus(user, isActive)} /> : null}
 
           {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
@@ -641,8 +655,23 @@ function Sidebar({ activePage, showSCReview, onSelect }) {
         <SidebarItem active={activePage === "requests"} icon={<Inbox size={22} />} label="Feedback Requests" onClick={() => onSelect("requests")} />
         <SidebarItem active={activePage === "history"} icon={<HistoryIcon size={22} />} label="Feedback History" onClick={() => onSelect("history")} />
         {showSCReview ? <SidebarItem active={activePage === "reports"} icon={<Inbox size={22} />} label="SC Team Review" onClick={() => onSelect("reports")} /> : null}
+        {showSCReview ? <SidebarItem active={activePage === "people"} icon={<UsersRound size={22} />} label="People" onClick={() => onSelect("people")} /> : null}
       </nav>
     </aside>
+  );
+}
+
+function PeopleManagement({ users, currentUserId, onUpdateStatus }) {
+  return (
+    <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+      <div className="border-b border-line px-6 py-5"><p className="font-bold text-slate-950">Account access</p><p className="mt-1 text-sm text-muted">Deactivating an account signs the person out, pauses their schedules, and updates open feedback requests. Completed history remains saved.</p></div>
+      <div className="divide-y divide-line">
+        {users.map((user) => <article className="flex flex-wrap items-center justify-between gap-4 px-6 py-4" key={user.id}>
+          <div><p className="font-semibold text-slate-900">{user.name}{user.id === currentUserId ? " (you)" : ""}</p><p className="mt-1 text-sm text-muted">{user.email} · {user.role || "member"}</p></div>
+          <div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${user.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{user.isActive ? "Active" : "Deactivated"}</span>{user.id !== currentUserId ? <button className={user.isActive ? "rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50" : secondaryButton} type="button" onClick={() => onUpdateStatus(user, !user.isActive)}>{user.isActive ? "Deactivate" : "Reactivate"}</button> : null}</div>
+        </article>)}
+      </div>
+    </section>
   );
 }
 
@@ -709,7 +738,7 @@ function StatCard({ icon, tone, label, value, helper }) {
 }
 
 function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, replacementRequest, onCreate, onClose }) {
-  const possibleGivers = users.filter((user) => user.id !== currentUserId);
+  const possibleGivers = users.filter((user) => user.id !== currentUserId && user.isActive !== false);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [message, setMessage] = useState(
@@ -735,7 +764,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
   }, [currentUserId, giverId, possibleGivers]);
 
   const possibleViewers = users.filter(
-    (user) => user.id !== currentUserId && user.id !== Number(giverId),
+    (user) => user.id !== currentUserId && user.id !== Number(giverId) && user.isActive !== false,
   );
 
   useEffect(() => {

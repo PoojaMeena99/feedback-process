@@ -387,10 +387,12 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
       <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} notifications={notifications} onNotificationRead={markNotificationRead} onReadAll={markAllNotificationsRead} onOpenRequest={(requestId) => void openRequest(requestId)} />
 
+      <MobileNavigation activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); }} />
+
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
         <Sidebar activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); }} />
 
-        <main className="border-x border-line/70 bg-white/45 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8">
+        <main className="border-x border-line/70 bg-white/55 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8 lg:px-9 xl:px-10">
           <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
@@ -428,7 +430,7 @@ export default function Home() {
           </section>
 
           <section className="mt-7 grid gap-5 xl:grid-cols-3">
-            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-blue-600">Quick actions</p><h2 className="mt-1 text-xl font-bold text-slate-950">What would you like to do?</h2><div className="mt-5 flex flex-wrap gap-3"><button className={primaryButton} type="button" onClick={() => { setReplacementRequest(null); setIsCreateOpen(true); }}><Plus size={17} /> Request feedback</button><button className={secondaryButton} type="button" onClick={() => setActivePage("requests")}>View requests ({pendingForMe.length})</button></div></article>
+            <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-blue-600">Quick actions</p><h2 className="mt-1 text-xl font-bold text-slate-950">What would you like to do?</h2><p className="mt-2 text-sm text-muted">Start a new request or check feedback waiting for you.</p><div className="mt-5 flex flex-wrap gap-3"><button className={primaryButton} type="button" onClick={() => { setReplacementRequest(null); setIsCreateOpen(true); }}><Plus size={17} /> Request feedback</button><button className={secondaryButton} type="button" onClick={() => setActivePage("requests")}>View requests ({pendingForMe.length})</button></div></article>
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-amber-600">Upcoming due dates</p><h2 className="mt-1 text-xl font-bold text-slate-950">Keep on track</h2><div className="mt-4 grid gap-2">{upcomingRequests.length ? upcomingRequests.map((request) => <div key={request.id} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="font-semibold">{request.type}</span><span className="font-bold text-amber-700">{request.dueDate}</span></div>) : <p className="text-sm text-muted">No upcoming due dates.</p>}</div></article>
             <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><p className="text-sm font-bold uppercase tracking-wide text-violet-600">Recent activity</p><h2 className="mt-1 text-xl font-bold text-slate-950">Latest updates</h2><div className="mt-4 grid gap-2">{tableRows.slice(0, 3).map((request) => <button key={request.id} type="button" onClick={() => void openRequest(request.id)} className="rounded-lg bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-violet-50"><p className="font-semibold text-slate-800">{request.type}</p><p className="mt-1 text-muted">{request.status} · {request.giverName}</p></button>)}</div></article>
           </section>
@@ -467,7 +469,7 @@ export default function Home() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {visibleRows.length ? visibleRows.map((row) => (
-                    <tr key={row.id} className="hover:bg-[#f9fbff]">
+                    <tr key={row.id} className="transition-colors hover:bg-[#f5f8ff]">
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">
                           <Avatar initials={row.requesterInitials} />
@@ -615,10 +617,10 @@ function AppHeader({ currentUser, onLogout, isLoggingOut, notifications, onNotif
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const unreadCount = notifications.filter((notification) => !notification.isRead).length;
   return (
-    <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3.5 shadow-lg sm:px-7">
+    <header className="sticky top-0 z-20 border-b border-white/15 bg-[#252d70] px-5 py-3 shadow-lg shadow-indigo-950/15 sm:px-7">
       <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg shadow-blue-950/30">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg shadow-blue-950/30 sm:h-14 sm:w-14">
             <img src="/justuju-logo.png" alt="Justuju" className="h-full w-full object-cover" />
           </div>
           <div>
@@ -649,6 +651,32 @@ function AppHeader({ currentUser, onLogout, isLoggingOut, notifications, onNotif
         </div>
       </div>
     </header>
+  );
+}
+
+function MobileNavigation({ activePage, showSCReview, onSelect }) {
+  const items = [
+    { page: "dashboard", label: "Dashboard", icon: <HomeIcon size={17} /> },
+    { page: "requests", label: "Requests", icon: <Inbox size={17} /> },
+    { page: "history", label: "History", icon: <HistoryIcon size={17} /> },
+    ...(showSCReview ? [{ page: "reports", label: "SC Review", icon: <Inbox size={17} /> }, { page: "people", label: "People", icon: <UsersRound size={17} /> }] : []),
+  ];
+
+  return (
+    <nav className="border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm lg:hidden" aria-label="Main navigation">
+      <div className="flex gap-2 overflow-x-auto pb-0.5">
+        {items.map((item) => (
+          <button
+            className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${activePage === item.page ? "bg-[#252d70] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+            key={item.page}
+            type="button"
+            onClick={() => onSelect(item.page)}
+          >
+            {item.icon}{item.label}
+          </button>
+        ))}
+      </div>
+    </nav>
   );
 }
 
@@ -717,7 +745,7 @@ function reportReasonLabel(reason) {
 function SidebarItem({ active = false, icon, label, onClick }) {
   return (
     <button
-      className={`flex items-center gap-4 rounded-xl px-4 py-3 transition ${
+      className={`flex w-full items-center gap-4 rounded-xl px-4 py-3 transition ${
         active ? "bg-white/18 text-white shadow-lg shadow-indigo-950/20" : "text-indigo-100/75 hover:bg-white/10 hover:text-white"
       }`}
       type="button"
@@ -737,19 +765,19 @@ function StatCard({ icon, tone, label, value, helper }) {
   }[tone];
 
   return (
-    <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
-      <div className="flex items-center gap-6">
-        <div className={`flex h-20 w-20 items-center justify-center rounded-full ${toneClass}`}>
+    <article className="rounded-2xl border border-line/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.09)] sm:p-6">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${toneClass} sm:h-16 sm:w-16`}>
           {icon}
         </div>
         <div>
-          <p className="text-lg font-medium">{label}</p>
-          <p className={`mt-3 text-5xl font-bold ${tone === "amber" ? "text-orange-600" : tone === "green" ? "text-green-700" : "text-blue-700"}`}>
+          <p className="text-base font-semibold text-slate-800 sm:text-lg">{label}</p>
+          <p className={`mt-1 text-4xl font-extrabold tracking-tight sm:text-5xl ${tone === "amber" ? "text-orange-600" : tone === "green" ? "text-green-700" : "text-blue-700"}`}>
             {value}
           </p>
         </div>
       </div>
-      <p className="mt-6 text-base text-muted">{helper}</p>
+      <p className="mt-4 text-sm leading-6 text-muted sm:text-base">{helper}</p>
     </article>
   );
 }

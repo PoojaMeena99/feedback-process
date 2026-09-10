@@ -122,8 +122,24 @@ CREATE TABLE IF NOT EXISTS feedback_templates (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
   description TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+SET @add_template_is_active_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_templates ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE AFTER description',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_templates'
+    AND column_name = 'is_active'
+);
+PREPARE add_template_is_active_column_statement FROM @add_template_is_active_column;
+EXECUTE add_template_is_active_column_statement;
+DEALLOCATE PREPARE add_template_is_active_column_statement;
 
 CREATE TABLE IF NOT EXISTS template_questions (
   id INT AUTO_INCREMENT PRIMARY KEY,

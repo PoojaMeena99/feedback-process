@@ -6,6 +6,7 @@ export async function getAllTemplates() {
   const [templates] = await pool.query(
     `SELECT id, name, description, created_at AS createdAt
      FROM feedback_templates
+     WHERE is_active = TRUE
      ORDER BY id`,
   );
 

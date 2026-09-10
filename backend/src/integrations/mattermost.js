@@ -70,7 +70,7 @@ export async function sendFeedbackSubmittedNotification(feedbackRequest) {
   }
 
   return sendMattermostMessage(
-    `@${requesterUsername}, **${feedbackRequest.giverName}** submitted your ` +
+    `@${requesterUsername}, **${feedbackRequest.isAnonymous ? "Anonymous feedback" : feedbackRequest.giverName}** was submitted for your ` +
       `**${feedbackRequest.templateName}**. Open Feedback and select ` +
       `**View** to read the feedback.`,
   );

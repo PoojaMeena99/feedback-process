@@ -142,7 +142,7 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
     requestId: feedbackRequest.id,
     type: "feedback_submitted",
     title: "Feedback received",
-    message: `${feedbackRequest.giverName} submitted ${feedbackRequest.templateName}.`,
+    message: `${feedbackRequest.isAnonymous ? "Anonymous feedback" : feedbackRequest.giverName} was submitted for ${feedbackRequest.templateName}.`,
   })));
 
   try {

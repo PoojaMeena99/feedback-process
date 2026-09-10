@@ -11,6 +11,7 @@ import {
   createFeedbackDiscussion as createFeedbackDiscussionInDatabase,
   updateFollowUp as updateFollowUpInDatabase,
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
+  redactFeedbackRequestForViewer,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
 import { writeFeedbackAuditEvent } from "../services/feedbackAuditService.js";
@@ -31,7 +32,7 @@ export async function createFeedbackRequest(req, res) {
   const requesterId = req.auth.user.id;
   const giverId = parsePositiveInteger(req.body.giverId);
   const templateId = parsePositiveInteger(req.body.templateId);
-  const { message, dueDate, purpose, visibility, viewerIds } = req.body;
+  const { message, dueDate, purpose, visibility, viewerIds, isAnonymous } = req.body;
 
   if (req.auth.user.role === "external") {
     return res.status(403).json({ message: "External collaborators can only respond to feedback sent to them." });
@@ -53,6 +54,7 @@ export async function createFeedbackRequest(req, res) {
       purpose,
       visibility,
       viewerIds,
+      isAnonymous,
     });
 
     return res.status(201).json({
@@ -101,7 +103,7 @@ export async function getRequestsForReceiver(req, res) {
   if (receiverId !== req.auth.user.id) return res.status(403).json({ message: "You can only view feedback requests received by you" });
   try {
     const feedbackRequests = await getRequestsForReceiverFromDatabase(receiverId);
-    return res.status(200).json({ feedbackRequests });
+    return res.status(200).json({ feedbackRequests: feedbackRequests.map((request) => redactFeedbackRequestForViewer(request, req.auth.user.id)) });
   } catch (error) { return respondWithError(res, error); }
 }
 
@@ -120,7 +122,7 @@ export async function getRequestsForGiver(req, res) {
 
   try {
     const feedbackRequests = await getRequestsForGiverFromDatabase(giverId);
-    return res.status(200).json({ feedbackRequests });
+    return res.status(200).json({ feedbackRequests: feedbackRequests.map((request) => redactFeedbackRequestForViewer(request, req.auth.user.id)) });
   } catch (error) {
     return respondWithError(res, error);
   }
@@ -143,7 +145,7 @@ export async function getRequestsForRequester(req, res) {
   try {
     const feedbackRequests =
       await getRequestsForRequesterFromDatabase(requesterId);
-    return res.status(200).json({ feedbackRequests });
+    return res.status(200).json({ feedbackRequests: feedbackRequests.map((request) => redactFeedbackRequestForViewer(request, req.auth.user.id)) });
   } catch (error) {
     return respondWithError(res, error);
   }
@@ -156,7 +158,7 @@ export async function getRequestsVisibleTo(req, res) {
   if (req.auth.user.role === "external") return res.status(403).json({ message: "External collaborators cannot browse shared feedback." });
   try {
     const feedbackRequests = await getRequestsVisibleToFromDatabase(viewerId);
-    return res.status(200).json({ feedbackRequests });
+    return res.status(200).json({ feedbackRequests: feedbackRequests.map((request) => redactFeedbackRequestForViewer(request, req.auth.user.id)) });
   } catch (error) {
     return respondWithError(res, error);
   }
@@ -185,7 +187,7 @@ export async function getFeedbackRequestById(req, res) {
     if (req.query.recordView === "true") {
       await writeFeedbackAuditEvent({ requestId, actorId: req.auth.user.id, eventType: "feedback_viewed" });
     }
-    return res.status(200).json({ feedbackRequest });
+    return res.status(200).json({ feedbackRequest: redactFeedbackRequestForViewer(feedbackRequest, req.auth.user.id) });
   } catch (error) {
     return respondWithError(res, error);
   }

@@ -28,6 +28,7 @@ const requestSelect = `
     request.message,
     request.purpose,
     request.visibility,
+    request.is_anonymous AS isAnonymous,
     request.due_date AS dueDate,
     request.status,
     request.decline_reason AS declineReason,
@@ -199,6 +200,7 @@ export async function createFeedbackRequest({
   purpose,
   visibility,
   viewerIds,
+  isAnonymous,
 }) {
   // A person requests feedback about themselves: requester is always receiver.
   receiverId = requesterId;
@@ -210,6 +212,7 @@ export async function createFeedbackRequest({
   const normalizedDueDate = normalizeDueDate(dueDate);
   const normalizedPurpose = normalizePurpose(purpose);
   const normalizedVisibility = normalizeVisibility(visibility);
+  const normalizedIsAnonymous = normalizeAnonymous(isAnonymous);
   const normalizedViewerIds = normalizeViewerIds(viewerIds, requesterId, giverId, normalizedVisibility);
   const requester = await requireUser(pool, requesterId, "Requester");
   if (requester.role === "external") throw new ServiceError(403, "External collaborators cannot create feedback requests");
@@ -245,9 +248,9 @@ export async function createFeedbackRequest({
     await connection.beginTransaction();
     [result] = await connection.execute(
       `INSERT INTO feedback_requests
-         (requester_id, giver_id, receiver_id, template_id, message, due_date, purpose, visibility, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'requested')`,
-      [requesterId, giverId, receiverId, templateId, message || null, normalizedDueDate, normalizedPurpose, normalizedVisibility],
+         (requester_id, giver_id, receiver_id, template_id, message, due_date, purpose, visibility, is_anonymous, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested')`,
+      [requesterId, giverId, receiverId, templateId, message || null, normalizedDueDate, normalizedPurpose, normalizedVisibility, normalizedIsAnonymous],
     );
     for (const viewerId of normalizedViewerIds) {
       await connection.execute(
@@ -284,6 +287,14 @@ export async function createFeedbackRequest({
       notification: { sent: false, reason: "Mattermost notification failed" },
     };
   }
+}
+
+function normalizeAnonymous(isAnonymous) {
+  if (isAnonymous === undefined || isAnonymous === null) return false;
+  if (typeof isAnonymous !== "boolean") {
+    throw new ServiceError(400, "isAnonymous must be true or false");
+  }
+  return isAnonymous;
 }
 
 function normalizeVisibility(visibility) {
@@ -432,6 +443,17 @@ export async function getFeedbackRequestById(requestId) {
     [requestId],
   );
 
+  // Questions belong to the feedback request's selected template. Returning
+  // them with the request detail prevents the client from accidentally loading
+  // questions from a different template while the request is being refreshed.
+  const [questions] = await pool.execute(
+    `SELECT id, question_text AS questionText, question_order AS questionOrder
+     FROM template_questions
+     WHERE template_id = ?
+     ORDER BY question_order, id`,
+    [request.templateId],
+  );
+
   const [answers] = await pool.execute(
     `SELECT
        answer.id,
@@ -484,7 +506,7 @@ export async function getFeedbackRequestById(requestId) {
   );
 
   const [auditLog] = await pool.execute(
-    `SELECT audit.id, audit.event_type AS eventType, audit.details,
+    `SELECT audit.id, audit.actor_id AS actorId, audit.event_type AS eventType, audit.details,
        audit.created_at AS createdAt, actor.name AS actorName
      FROM feedback_audit_log AS audit
      LEFT JOIN users AS actor ON actor.id = audit.actor_id
@@ -496,10 +518,36 @@ export async function getFeedbackRequestById(requestId) {
   return {
     ...request,
     viewers,
+    questions,
     answers,
     followUps,
     discussions,
     auditLog,
+  };
+}
+
+// The database preserves the giver for authorised operations, but API output
+// must not reveal that identity to the requester, receiver, or selected viewers.
+// The giver can still recognise their own request and submit their feedback.
+export function redactFeedbackRequestForViewer(feedbackRequest, viewerId) {
+  if (!feedbackRequest?.isAnonymous || Number(feedbackRequest.giverId) === Number(viewerId)) {
+    return feedbackRequest;
+  }
+
+  const isGiver = (person) => Number(person?.authorId ?? person?.ownerId ?? person?.actorId) === Number(feedbackRequest.giverId);
+  return {
+    ...feedbackRequest,
+    giverName: "Anonymous",
+    giverEmail: null,
+    followUps: feedbackRequest.followUps?.map((followUp) => (
+      isGiver(followUp) ? { ...followUp, ownerName: "Anonymous" } : followUp
+    )),
+    discussions: feedbackRequest.discussions?.map((discussion) => (
+      isGiver(discussion) ? { ...discussion, authorName: "Anonymous" } : discussion
+    )),
+    auditLog: feedbackRequest.auditLog?.map((event) => (
+      isGiver(event) ? { ...event, actorName: "Anonymous" } : event
+    )),
   };
 }
 

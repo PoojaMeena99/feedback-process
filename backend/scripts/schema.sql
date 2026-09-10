@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   due_date DATE NULL,
   purpose VARCHAR(40) NULL,
   visibility VARCHAR(30) NOT NULL DEFAULT 'private',
+  is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
   alternate_giver_id INT NULL,
   hidden_at TIMESTAMP NULL,
   hidden_by INT NULL,
@@ -206,6 +207,21 @@ SET @add_purpose_column = (
 PREPARE add_purpose_column_statement FROM @add_purpose_column;
 EXECUTE add_purpose_column_statement;
 DEALLOCATE PREPARE add_purpose_column_statement;
+
+SET @add_is_anonymous_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_requests ADD COLUMN is_anonymous BOOLEAN NOT NULL DEFAULT FALSE AFTER visibility',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_requests'
+    AND column_name = 'is_anonymous'
+);
+PREPARE add_is_anonymous_column_statement FROM @add_is_anonymous_column;
+EXECUTE add_is_anonymous_column_statement;
+DEALLOCATE PREPARE add_is_anonymous_column_statement;
 
 SET @add_receiver_id_column = (
   SELECT IF(COUNT(*) = 0,

@@ -35,6 +35,17 @@ async function api(path, options) {
   return data;
 }
 
+function withRequestTemplate(request) {
+  return {
+    ...request,
+    template: {
+      templateId: request.templateId,
+      templateName: request.templateName,
+      questions: request.questions || [],
+    },
+  };
+}
+
 export default function Home() {
   const router = useRouter();
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -146,11 +157,8 @@ export default function Home() {
     const refreshSelectedRequest = async () => {
       if (!selectedRequestId) return;
       try {
-        const [detail, template] = await Promise.all([
-          api(`/feedback-requests/${selectedRequestId}`),
-          api(`/templates/${selectedRequest?.templateId}/questions`),
-        ]);
-        setSelectedRequest({ ...detail.feedbackRequest, template });
+        const detail = await api(`/feedback-requests/${selectedRequestId}`);
+        setSelectedRequest(withRequestTemplate(detail.feedbackRequest));
       } catch (detailError) {
         if (detailError.status !== 401) setError(detailError.message);
       }
@@ -220,8 +228,7 @@ export default function Home() {
   async function openRequest(requestId) {
     try {
       const detail = await api(`/feedback-requests/${requestId}?recordView=true`);
-      const template = await api(`/templates/${detail.feedbackRequest.templateId}/questions`);
-      setSelectedRequest({ ...detail.feedbackRequest, template });
+      setSelectedRequest(withRequestTemplate(detail.feedbackRequest));
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -762,9 +769,11 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
   const [dueInDays, setDueInDays] = useState("7");
   const [purpose, setPurpose] = useState("growth");
   const [visibility, setVisibility] = useState("private");
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const [viewerIds, setViewerIds] = useState([]);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [isCustomTemplateOpen, setIsCustomTemplateOpen] = useState(false);
+  const [savedTemplateName, setSavedTemplateName] = useState("");
   const [customTemplateName, setCustomTemplateName] = useState("");
   const [customTemplateDescription, setCustomTemplateDescription] = useState("");
   const [customQuestions, setCustomQuestions] = useState(["", "", ""]);
@@ -802,6 +811,8 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     setRecurring(false);
     setViewerIds([]);
     setVisibility("private");
+    setIsAnonymous(false);
+    setSavedTemplateName("");
     setMessage(`Replacement request after ${replacementRequest.giverName} declined.`);
     setNotice(null);
     setShowMoreOptions(false);
@@ -835,6 +846,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
       purpose,
       visibility,
       viewerIds,
+      isAnonymous,
       recurring,
       frequency: recurring ? frequency : undefined,
       scheduledTime: recurring ? scheduledTime : undefined,
@@ -896,12 +908,13 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     }
 
     setTemplateId(result.template.id);
+    setSavedTemplateName(result.template.name);
     setCustomTemplateName("");
     setCustomTemplateDescription("");
     setCustomQuestions(["", "", ""]);
     setIsCustomTemplateOpen(false);
     setNoticeTone("success");
-    setNotice("Custom template saved. It is now selected as the feedback type.");
+    setNotice("Custom template saved and selected for this request.");
   }
 
   return (
@@ -941,6 +954,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
               type="button"
               onClick={() => {
                 setIsCustomTemplateOpen((isOpen) => !isOpen);
+                setSavedTemplateName("");
                 setNotice(null);
               }}
             >
@@ -1014,6 +1028,13 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
                 <Check size={18} />
                 {isSavingTemplate ? "Saving template..." : "Save custom template"}
               </button>
+            </div>
+          ) : null}
+
+          {savedTemplateName ? (
+            <div className="mt-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              <Check className="mt-0.5 shrink-0 text-emerald-700" size={18} />
+              <span><strong>{savedTemplateName}</strong> is saved and selected. You can now choose the feedback giver and send the request.</span>
             </div>
           ) : null}
         </div>
@@ -1107,9 +1128,22 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
         ) : null}
         </> : null}
 
+        {!recurring ? <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input className="mt-1 h-4 w-4" type="checkbox" checked={isAnonymous} onChange={(event) => setIsAnonymous(event.target.checked)} />
+            <span>
+              <span className="font-semibold text-slate-900">Keep the feedback giver anonymous</span>
+              <span className="mt-1 block text-sm font-normal text-slate-600">After feedback is submitted, their name is hidden from you and any selected viewers. The giver can still see their own request.</span>
+            </span>
+          </label>
+        </div> : null}
+
         <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
           <label className="flex cursor-pointer items-start gap-3">
-            <input className="mt-1 h-4 w-4" type="checkbox" checked={recurring} disabled={Boolean(replacementRequest)} onChange={(event) => setRecurring(event.target.checked)} />
+            <input className="mt-1 h-4 w-4" type="checkbox" checked={recurring} disabled={Boolean(replacementRequest)} onChange={(event) => {
+              setRecurring(event.target.checked);
+              if (event.target.checked) setIsAnonymous(false);
+            }} />
             <span><span className="font-semibold text-slate-900">Repeat this feedback</span><span className="mt-1 block text-sm font-normal text-slate-600">Create future requests automatically for regular feedback.</span></span>
           </label>
           {recurring ? <div className="mt-4 grid gap-4 border-t border-violet-200 pt-4">
@@ -1377,6 +1411,7 @@ function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSu
               {request.requesterName} requested feedback from {request.giverName}
             </h2>
             <p className="mt-2 text-sm text-slate-600">Share clear, kind, and actionable feedback.</p>
+            {request.isAnonymous && !isGiver ? <p className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Anonymous feedback · giver name hidden</p> : null}
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-2">
             {canModerate ? <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" type="button" onClick={() => setIsModerationOpen(true)}>Record controls</button> : null}
@@ -1777,7 +1812,6 @@ function RequestActions({ row, currentUserId, onView, onAction, onEditDueDate })
   if (isGiver && ["requested", "in_progress", "overdue"].includes(row.status)) {
     return (
       <div className="flex gap-2">
-        {row.status !== "in_progress" ? <button className={buttonClass} type="button" onClick={() => onAction("start")}>Start</button> : null}
         <button className={buttonClass} type="button" onClick={onView}>Fill</button>
         <button className={destructiveButtonClass} type="button" onClick={() => onAction("decline")}>Decline</button>
       </div>

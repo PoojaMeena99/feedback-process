@@ -1,5 +1,6 @@
 import { getDatabasePool } from "../db/connection.js";
 import { sendFeedbackSubmittedNotification } from "../integrations/mattermost.js";
+import { sendFeedbackEmail } from "../integrations/email.js";
 import { getFeedbackRequestById } from "./feedbackRequestService.js";
 import { ServiceError } from "./serviceError.js";
 import { createInAppNotification } from "./notificationService.js";
@@ -34,7 +35,20 @@ function normalizeAnswers(answers, questions) {
   return answers.map((answer) => ({
     questionId: Number(answer?.questionId),
     answer: typeof answer?.answer === "string" ? answer.answer.trim() : "",
+    rating: answer?.rating === null || answer?.rating === undefined || answer?.rating === "" ? null : Number(answer.rating),
   }));
+}
+
+function validateAnswers(normalizedAnswers, questions, requireText) {
+  const validQuestionIds = new Set(questions.map((question) => question.id));
+  const usedQuestionIds = new Set();
+  for (const item of normalizedAnswers) {
+    if (!validQuestionIds.has(item.questionId)) throw new ServiceError(400, "Every answer must reference a question from the selected template");
+    if (usedQuestionIds.has(item.questionId)) throw new ServiceError(400, "A question can only be answered once");
+    if (requireText && !item.answer) throw new ServiceError(400, "Answer text cannot be empty");
+    if (item.rating !== null && (!Number.isInteger(item.rating) || item.rating < 1 || item.rating > 5)) throw new ServiceError(400, "Rating must be between 1 and 5");
+    usedQuestionIds.add(item.questionId);
+  }
 }
 
 export async function submitFeedbackAnswers(requestId, giverId, answers) {
@@ -79,27 +93,7 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
     );
 
     const normalizedAnswers = normalizeAnswers(answers, questions);
-    const validQuestionIds = new Set(questions.map((question) => question.id));
-    const usedQuestionIds = new Set();
-
-    for (const item of normalizedAnswers) {
-      if (!validQuestionIds.has(item.questionId)) {
-        throw new ServiceError(
-          400,
-          "Every answer must reference a question from the selected template",
-        );
-      }
-
-      if (usedQuestionIds.has(item.questionId)) {
-        throw new ServiceError(400, "A question can only be answered once");
-      }
-
-      if (!item.answer) {
-        throw new ServiceError(400, "Answer text cannot be empty");
-      }
-
-      usedQuestionIds.add(item.questionId);
-    }
+    validateAnswers(normalizedAnswers, questions, true);
 
     const [[existingAnswer]] = await connection.execute(
       "SELECT id FROM feedback_answers WHERE request_id = ? LIMIT 1",
@@ -112,18 +106,19 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
 
     for (const item of normalizedAnswers) {
       await connection.execute(
-        `INSERT INTO feedback_answers (request_id, question_id, answer)
-         VALUES (?, ?, ?)`,
-        [requestId, item.questionId, item.answer],
+        `INSERT INTO feedback_answers (request_id, question_id, answer, rating)
+         VALUES (?, ?, ?, ?)`,
+        [requestId, item.questionId, item.answer, item.rating],
       );
     }
 
     await connection.execute(
       `UPDATE feedback_requests
-       SET status = 'submitted'
+       SET status = 'submitted', submitted_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [requestId],
     );
+    await connection.execute("DELETE FROM feedback_answer_drafts WHERE request_id = ?", [requestId]);
     await writeFeedbackAuditEvent({ requestId, actorId: giverId, eventType: "feedback_submitted", connection });
 
     await connection.commit();
@@ -145,15 +140,44 @@ export async function submitFeedbackAnswers(requestId, giverId, answers) {
     message: `${feedbackRequest.isAnonymous ? "Anonymous feedback" : feedbackRequest.giverName} was submitted for ${feedbackRequest.templateName}.`,
   })));
 
+  let notification = { sent: false, reason: "Mattermost notification was not sent" };
   try {
-    const notification =
-      await sendFeedbackSubmittedNotification(feedbackRequest);
-    return { ...feedbackRequest, notification };
+    notification = await sendFeedbackSubmittedNotification(feedbackRequest);
   } catch (error) {
     console.error("Mattermost notification failed:", error.message);
-    return {
-      ...feedbackRequest,
-      notification: { sent: false, reason: "Mattermost notification failed" },
-    };
   }
+  try {
+    await sendFeedbackEmail({
+      email: feedbackRequest.receiverEmail,
+      name: feedbackRequest.receiverName,
+      subject: "Feedback received",
+      message: `${feedbackRequest.isAnonymous ? "Anonymous feedback" : `${feedbackRequest.giverName}'s feedback`} for ${feedbackRequest.templateName} is ready to review.`,
+      actionUrl: process.env.FRONTEND_ORIGIN || undefined,
+    });
+  } catch (error) {
+    console.error("Feedback submitted email failed:", error.message);
+  }
+  return { ...feedbackRequest, notification };
+}
+
+export async function saveFeedbackDraft(requestId, giverId, answers) {
+  const pool = getDatabasePool();
+  const [[request]] = await pool.execute(
+    "SELECT giver_id AS giverId, template_id AS templateId, status FROM feedback_requests WHERE id = ?",
+    [requestId],
+  );
+  if (!request) throw new ServiceError(404, "Feedback request not found");
+  if (request.giverId !== giverId) throw new ServiceError(403, "Only the selected feedback giver can save a draft");
+  if (!["requested", "in_progress", "overdue"].includes(request.status)) throw new ServiceError(409, "A draft can only be saved for an active request");
+  const [questions] = await pool.execute("SELECT id FROM template_questions WHERE template_id = ? ORDER BY question_order, id", [request.templateId]);
+  const normalizedAnswers = normalizeAnswers(answers, questions);
+  validateAnswers(normalizedAnswers, questions, false);
+  await pool.execute(
+    `INSERT INTO feedback_answer_drafts (request_id, giver_id, answers)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE giver_id = VALUES(giver_id), answers = VALUES(answers), updated_at = CURRENT_TIMESTAMP`,
+    [requestId, giverId, JSON.stringify(normalizedAnswers)],
+  );
+  await writeFeedbackAuditEvent({ requestId, actorId: giverId, eventType: "feedback_draft_saved" });
+  return { answers: normalizedAnswers };
 }

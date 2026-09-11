@@ -58,3 +58,19 @@ export async function sendEmailVerificationEmail({ email, name, verificationUrl 
     html: `<p>Hi ${name || "there"},</p><p>Verify your email to activate your Feedback account.</p><p><a href="${verificationUrl}">Verify email</a></p><p>This link expires in 24 hours.</p>`,
   });
 }
+
+// Operational feedback emails are deliberately best-effort. A temporary SMTP
+// problem must never prevent a person from creating or completing feedback.
+export async function sendFeedbackEmail({ email, name, subject, message, actionUrl }) {
+  const configuration = getEmailConfiguration();
+  const transporter = createEmailTransporter(configuration);
+  const safeMessage = String(message || "");
+  const linkMarkup = actionUrl ? `<p><a href="${actionUrl}">Open Feedback Process</a></p>` : "";
+  await transporter.sendMail({
+    from: `Feedback Process <${configuration.from}>`,
+    to: email,
+    subject,
+    text: `Hi ${name || "there"},\n\n${safeMessage}${actionUrl ? `\n\nOpen Feedback Process: ${actionUrl}` : ""}`,
+    html: `<p>Hi ${name || "there"},</p><p>${safeMessage}</p>${linkMarkup}`,
+  });
+}

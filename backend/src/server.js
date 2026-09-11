@@ -10,6 +10,7 @@ import templateRouter from "./routes/templateRoutes.js";
 import userRouter from "./routes/userRoutes.js";
 import notificationRouter from "./routes/notificationRoutes.js";
 import feedbackReportRouter from "./routes/feedbackReportRoutes.js";
+import feedbackAnalyticsRouter from "./routes/feedbackAnalyticsRoutes.js";
 import { startFeedbackReminderJob } from "./jobs/feedbackReminderJob.js";
 import { getDatabasePool } from "./db/connection.js";
 
@@ -49,6 +50,7 @@ app.use("/auth", authRouter);
 app.use("/users", userRouter);
 app.use("/notifications", notificationRouter);
 app.use("/feedback-reports", feedbackReportRouter);
+app.use("/feedback-analytics", feedbackAnalyticsRouter);
 app.use("/templates", templateRouter);
 app.use("/feedback-requests", feedbackRequestRouter);
 
@@ -68,6 +70,65 @@ async function startServer() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )`,
   );
+
+  // Drafts never change a request into submitted feedback.
+  await getDatabasePool().execute(
+    `CREATE TABLE IF NOT EXISTS feedback_answer_drafts (
+      request_id INT NOT NULL PRIMARY KEY,
+      giver_id INT NOT NULL,
+      answers JSON NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+      FOREIGN KEY (giver_id) REFERENCES users(id)
+    )`,
+  );
+
+  const [[ratingColumn]] = await getDatabasePool().execute(
+    `SELECT COUNT(*) AS count FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'feedback_answers' AND column_name = 'rating'`,
+  );
+  if (!ratingColumn.count) {
+    await getDatabasePool().execute("ALTER TABLE feedback_answers ADD COLUMN rating TINYINT NULL AFTER answer");
+  }
+
+  const [[submittedAtColumn]] = await getDatabasePool().execute(
+    `SELECT COUNT(*) AS count FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'submitted_at'`,
+  );
+  if (!submittedAtColumn.count) {
+    await getDatabasePool().execute("ALTER TABLE feedback_requests ADD COLUMN submitted_at TIMESTAMP NULL AFTER status");
+  }
+
+  const [[discussionAnswerColumn]] = await getDatabasePool().execute(
+    `SELECT COUNT(*) AS count FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'feedback_discussions' AND column_name = 'answer_id'`,
+  );
+  if (!discussionAnswerColumn.count) {
+    await getDatabasePool().execute("ALTER TABLE feedback_discussions ADD COLUMN answer_id INT NULL AFTER request_id");
+  }
+
+  await getDatabasePool().execute(
+    `CREATE TABLE IF NOT EXISTS feedback_request_attachments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      request_id INT NOT NULL,
+      added_by INT NOT NULL,
+      label VARCHAR(160) NOT NULL,
+      url VARCHAR(2048) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+      FOREIGN KEY (added_by) REFERENCES users(id)
+    )`,
+  );
+
+  // Built-in templates have no owner. Templates made through the app keep their
+  // creator so that people can manage only their own reusable templates.
+  const [[templateOwnerColumn]] = await getDatabasePool().execute(
+    `SELECT COUNT(*) AS count FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'feedback_templates' AND column_name = 'created_by'`,
+  );
+  if (!templateOwnerColumn.count) {
+    await getDatabasePool().execute("ALTER TABLE feedback_templates ADD COLUMN created_by INT NULL AFTER description");
+  }
 
   app.listen(port, () => {
     console.log(`Feedback Process API running at http://localhost:${port}`);

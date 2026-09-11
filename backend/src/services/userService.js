@@ -14,6 +14,7 @@ export async function getAllUsers() {
 }
 
 const adminRoles = new Set(["admin", "hr", "sc"]);
+const assignableRoles = new Set(["member", "mentor", "lead", "manager", "sc", "hr", "admin", "external"]);
 const openStatuses = ["requested", "in_progress", "overdue", "submitted", "acknowledged", "follow_up_needed"];
 
 /**
@@ -105,4 +106,21 @@ export async function setUserActive({ userId, actorId, isActive }) {
   } finally {
     connection.release();
   }
+}
+
+export async function setUserRole({ userId, actorId, role }) {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  if (!assignableRoles.has(normalizedRole)) throw new ServiceError(400, "Choose a valid role");
+  const pool = getDatabasePool();
+  const [[actor]] = await pool.execute("SELECT role FROM users WHERE id = ?", [actorId]);
+  if (!actor || !adminRoles.has(String(actor.role).toLowerCase())) {
+    throw new ServiceError(403, "Only SC Team, HR, or an admin can change roles");
+  }
+  if (Number(userId) === Number(actorId) && !adminRoles.has(normalizedRole)) {
+    throw new ServiceError(400, "You cannot remove your own reviewer access");
+  }
+  const [result] = await pool.execute("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, userId]);
+  if (!result.affectedRows) throw new ServiceError(404, "User not found");
+  const [[user]] = await pool.execute("SELECT id, name, email, role, is_active AS isActive FROM users WHERE id = ?", [userId]);
+  return user;
 }

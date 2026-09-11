@@ -1,4 +1,4 @@
-import { submitFeedbackAnswers as saveFeedbackAnswers } from "../services/feedbackAnswerService.js";
+import { submitFeedbackAnswers as saveFeedbackAnswers, saveFeedbackDraft as saveFeedbackDraftInDatabase } from "../services/feedbackAnswerService.js";
 import {
   createFeedbackRequest as createFeedbackRequestInDatabase,
   getFeedbackRequestById as getFeedbackRequestByIdFromDatabase,
@@ -12,6 +12,7 @@ import {
   updateFollowUp as updateFollowUpInDatabase,
   updateFeedbackRequestDueDate as updateFeedbackRequestDueDateInDatabase,
   redactFeedbackRequestForViewer,
+  addFeedbackAttachment as addFeedbackAttachmentInDatabase,
 } from "../services/feedbackRequestService.js";
 import { respondWithError } from "./respondWithError.js";
 import { writeFeedbackAuditEvent } from "../services/feedbackAuditService.js";
@@ -219,6 +220,26 @@ export async function submitFeedbackAnswers(req, res) {
   }
 }
 
+export async function saveFeedbackDraft(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  if (!requestId) return res.status(400).json({ message: "Request ID must be a positive integer" });
+  try {
+    const draft = await saveFeedbackDraftInDatabase(requestId, req.auth.user.id, req.body.answers);
+    return res.status(200).json({ message: "Draft saved", draft });
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+}
+
+export async function addFeedbackAttachment(req, res) {
+  const requestId = parsePositiveInteger(req.params.id);
+  if (!requestId) return res.status(400).json({ message: "Request ID must be a positive integer" });
+  try {
+    const feedbackRequest = await addFeedbackAttachmentInDatabase({ requestId, actorId: req.auth.user.id, label: req.body.label, url: req.body.url });
+    return res.status(201).json({ message: "Supporting link added", feedbackRequest });
+  } catch (error) { return respondWithError(res, error); }
+}
+
 export async function updateFeedbackRequestDueDate(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
   const { dueDate } = req.body;
@@ -254,12 +275,14 @@ export async function createFollowUp(req, res) {
 
 export async function createFeedbackDiscussion(req, res) {
   const requestId = parsePositiveInteger(req.params.id);
-  const { type, message, parentId } = req.body;
+  const { type, message, parentId, answerId } = req.body;
   const normalizedParentId = parentId === undefined || parentId === null || parentId === "" ? null : parsePositiveInteger(parentId);
+  const normalizedAnswerId = answerId === undefined || answerId === null || answerId === "" ? null : parsePositiveInteger(answerId);
   if (!requestId) return res.status(400).json({ message: "Request ID must be a positive integer" });
   if (parentId !== undefined && parentId !== null && parentId !== "" && !normalizedParentId) {
     return res.status(400).json({ message: "parentId must be a positive integer" });
   }
+  if (answerId !== undefined && answerId !== null && answerId !== "" && !normalizedAnswerId) return res.status(400).json({ message: "answerId must be a positive integer" });
   try {
     const feedbackRequest = await createFeedbackDiscussionInDatabase({
       requestId,
@@ -267,6 +290,7 @@ export async function createFeedbackDiscussion(req, res) {
       type,
       message,
       parentId: normalizedParentId,
+      answerId: normalizedAnswerId,
     });
     return res.status(201).json({ message: "Feedback discussion saved", feedbackRequest });
   } catch (error) {

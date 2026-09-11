@@ -13,6 +13,8 @@ import {
   getRequestsForRequester,
   getRequestsVisibleTo,
   performFeedbackRequestAction,
+  saveFeedbackDraft,
+  addFeedbackAttachment,
   submitFeedbackAnswers,
   updateFeedbackRequestDueDate,
   updateFollowUp,
@@ -40,6 +42,8 @@ router.post("/:id/discussions", createFeedbackDiscussion);
 router.post("/:id/follow-ups", createFollowUp);
 router.patch("/:id/follow-ups/:followUpId", updateFollowUp);
 router.post("/:id/answers", submitFeedbackAnswers);
+router.put("/:id/draft", saveFeedbackDraft);
+router.post("/:id/attachments", addFeedbackAttachment);
 router.post("/:id/actions", performFeedbackRequestAction);
 
 export default router;

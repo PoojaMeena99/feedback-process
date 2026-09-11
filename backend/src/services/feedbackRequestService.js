@@ -6,6 +6,7 @@ import {
   sendFeedbackOverdueNotification,
   sendFeedbackRequestNotification,
 } from "../integrations/mattermost.js";
+import { sendFeedbackEmail } from "../integrations/email.js";
 import { ServiceError } from "./serviceError.js";
 import { createInAppNotification } from "./notificationService.js";
 import { writeFeedbackAuditEvent } from "./feedbackAuditService.js";
@@ -108,7 +109,7 @@ async function recordNotification(pool, requestId, notificationKey) {
 }
 
 /**
- * Sends one reminder the day before and on the day a request is due, plus an
+ * Sends one reminder two days before and on the day a request is due, plus an
  * overdue alert. The database log makes this safe to call every hour.
  */
 export async function sendScheduledFeedbackReminders() {
@@ -116,7 +117,7 @@ export async function sendScheduledFeedbackReminders() {
   await markOverdueRequests(pool);
   const [requests] = await pool.execute(
     `${requestSelect}
-     WHERE (request.status IN ('requested', 'in_progress') AND request.due_date = DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))
+     WHERE (request.status IN ('requested', 'in_progress') AND request.due_date = DATE_ADD(CURRENT_DATE(), INTERVAL 2 DAY))
         OR (request.status IN ('requested', 'in_progress') AND request.due_date = CURRENT_DATE())
         OR (request.status = 'overdue' AND request.due_date < CURRENT_DATE())`,
   );
@@ -133,21 +134,36 @@ export async function sendScheduledFeedbackReminders() {
       : isDueToday
         ? await sendFeedbackDueTodayNotification(feedbackRequest)
         : await sendFeedbackDueSoonNotification(feedbackRequest);
+    const reminderText = isOverdue
+      ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is overdue.`
+      : isDueToday
+        ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due today.`
+        : `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due in 2 days.`;
+    let emailSent = false;
+    try {
+      await sendFeedbackEmail({
+        email: feedbackRequest.giverEmail,
+        name: feedbackRequest.giverName,
+        subject: isOverdue ? "Feedback request is overdue" : isDueToday ? "Feedback request due today" : "Feedback request due in 2 days",
+        message: reminderText,
+        actionUrl: process.env.FRONTEND_ORIGIN || undefined,
+      });
+      emailSent = true;
+    } catch (error) {
+      console.error("Feedback reminder email failed:", error.message);
+    }
 
-    // Do not log a failed delivery, so the next scheduled run can retry it.
-    if (!notification.sent) continue;
+    // Mattermost is optional when email is configured, but at least one
+    // delivery channel needs to succeed before this reminder is marked sent.
+    if (!notification?.sent && !emailSent) continue;
     const recorded = await recordNotification(pool, feedbackRequest.id, notificationKey);
     if (recorded) {
       await notifyUser({
         userId: feedbackRequest.giverId,
         requestId: feedbackRequest.id,
         type: isOverdue ? "feedback_overdue" : isDueToday ? "feedback_due_today" : "feedback_due_soon",
-        title: isOverdue ? "Feedback is overdue" : isDueToday ? "Feedback due today" : "Feedback due tomorrow",
-        message: isOverdue
-          ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is overdue.`
-          : isDueToday
-            ? `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due today.`
-            : `${feedbackRequest.templateName} feedback for ${feedbackRequest.receiverName} is due tomorrow.`,
+        title: isOverdue ? "Feedback is overdue" : isDueToday ? "Feedback due today" : "Feedback due in 2 days",
+        message: reminderText,
       });
       result[isOverdue ? "overdue" : isDueToday ? "dueToday" : "dueSoon"] += 1;
     }
@@ -219,7 +235,10 @@ export async function createFeedbackRequest({
   await requireUser(pool, giverId, "Feedback giver");
   await requireUser(pool, receiverId, "Feedback receiver");
   for (const viewerId of normalizedViewerIds) {
-    await requireUser(pool, viewerId, "Selected viewer");
+    const viewer = await requireUser(pool, viewerId, "Selected viewer");
+    if (normalizedVisibility === "mentor_lead" && !["mentor", "lead", "manager"].includes(String(viewer.role || "").toLowerCase())) {
+      throw new ServiceError(400, "The selected viewer must have a Mentor, Lead, or Manager role");
+    }
   }
   await requireTemplate(pool, templateId);
 
@@ -276,17 +295,24 @@ export async function createFeedbackRequest({
     message: `${feedbackRequest.requesterName} requested ${feedbackRequest.templateName} from you.`,
   });
 
+  let notification = { sent: false, reason: "Mattermost notification was not sent" };
   try {
-    const notification =
-      await sendFeedbackRequestNotification(feedbackRequest);
-    return { ...feedbackRequest, notification };
+    notification = await sendFeedbackRequestNotification(feedbackRequest);
   } catch (error) {
     console.error("Mattermost notification failed:", error.message);
-    return {
-      ...feedbackRequest,
-      notification: { sent: false, reason: "Mattermost notification failed" },
-    };
   }
+  try {
+    await sendFeedbackEmail({
+      email: feedbackRequest.giverEmail,
+      name: feedbackRequest.giverName,
+      subject: "New feedback request",
+      message: `${feedbackRequest.requesterName} requested ${feedbackRequest.templateName} feedback from you.`,
+      actionUrl: process.env.FRONTEND_ORIGIN || undefined,
+    });
+  } catch (error) {
+    console.error("Feedback request email failed:", error.message);
+  }
+  return { ...feedbackRequest, notification };
 }
 
 function normalizeAnonymous(isAnonymous) {
@@ -430,6 +456,15 @@ export async function getFeedbackRequestById(requestId) {
     [requestId],
   );
 
+  const [attachments] = await pool.execute(
+    `SELECT attachment.id, attachment.label, attachment.url, attachment.added_by AS addedBy,
+       user.name AS addedByName, attachment.created_at AS createdAt
+     FROM feedback_request_attachments AS attachment
+     JOIN users AS user ON user.id = attachment.added_by
+     WHERE attachment.request_id = ? ORDER BY attachment.created_at ASC, attachment.id ASC`,
+    [requestId],
+  );
+
   if (!request) {
     throw new ServiceError(404, "Feedback request not found");
   }
@@ -460,11 +495,18 @@ export async function getFeedbackRequestById(requestId) {
        answer.question_id AS questionId,
        question.question_text AS questionText,
        answer.answer,
+       answer.rating,
        answer.created_at AS createdAt
      FROM feedback_answers AS answer
      JOIN template_questions AS question ON question.id = answer.question_id
      WHERE answer.request_id = ?
      ORDER BY question.question_order, answer.id`,
+    [requestId],
+  );
+
+  const [[draft]] = await pool.execute(
+    `SELECT giver_id AS giverId, answers, updated_at AS updatedAt
+     FROM feedback_answer_drafts WHERE request_id = ?`,
     [requestId],
   );
 
@@ -494,7 +536,7 @@ export async function getFeedbackRequestById(requestId) {
   );
 
   const [discussions] = await pool.execute(
-    `SELECT discussion.id, discussion.parent_id AS parentId,
+    `SELECT discussion.id, discussion.parent_id AS parentId, discussion.answer_id AS answerId,
        discussion.author_id AS authorId, author.name AS authorName,
        discussion.type, discussion.message, discussion.status,
        discussion.resolved_at AS resolvedAt, discussion.created_at AS createdAt
@@ -520,22 +562,44 @@ export async function getFeedbackRequestById(requestId) {
     viewers,
     questions,
     answers,
+    draft: draft ? { ...draft, answers: typeof draft.answers === "string" ? JSON.parse(draft.answers) : draft.answers } : null,
     followUps,
+    attachments,
     discussions,
     auditLog,
   };
+}
+
+export async function addFeedbackAttachment({ requestId, actorId, label, url }) {
+  const normalizedLabel = String(label || "").trim();
+  const normalizedUrl = String(url || "").trim();
+  if (normalizedLabel.length < 2 || normalizedLabel.length > 160) throw new ServiceError(400, "Attachment name must be between 2 and 160 characters");
+  let parsedUrl;
+  try { parsedUrl = new URL(normalizedUrl); } catch { throw new ServiceError(400, "Enter a valid link"); }
+  if (!["https:", "http:"].includes(parsedUrl.protocol)) throw new ServiceError(400, "Attachment link must use http or https");
+  const pool = getDatabasePool();
+  const [[request]] = await pool.execute("SELECT requester_id AS requesterId, giver_id AS giverId, receiver_id AS receiverId, status FROM feedback_requests WHERE id = ?", [requestId]);
+  if (!request) throw new ServiceError(404, "Feedback request not found");
+  if (![request.requesterId, request.giverId, request.receiverId].includes(actorId)) throw new ServiceError(403, "Only participants can add supporting links");
+  if (["cancelled", "declined", "closed"].includes(request.status)) throw new ServiceError(409, "Supporting links cannot be added to a completed request");
+  await pool.execute("INSERT INTO feedback_request_attachments (request_id, added_by, label, url) VALUES (?, ?, ?, ?)", [requestId, actorId, normalizedLabel, normalizedUrl]);
+  await writeFeedbackAuditEvent({ requestId, actorId, eventType: "supporting_link_added" });
+  return getFeedbackRequestById(requestId);
 }
 
 // The database preserves the giver for authorised operations, but API output
 // must not reveal that identity to the requester, receiver, or selected viewers.
 // The giver can still recognise their own request and submit their feedback.
 export function redactFeedbackRequestForViewer(feedbackRequest, viewerId) {
+  const hideDraft = (request) => Number(request?.draft?.giverId) === Number(viewerId)
+    ? request
+    : { ...request, draft: null };
   if (!feedbackRequest?.isAnonymous || Number(feedbackRequest.giverId) === Number(viewerId)) {
-    return feedbackRequest;
+    return hideDraft(feedbackRequest);
   }
 
   const isGiver = (person) => Number(person?.authorId ?? person?.ownerId ?? person?.actorId) === Number(feedbackRequest.giverId);
-  return {
+  return hideDraft({
     ...feedbackRequest,
     giverName: "Anonymous",
     giverEmail: null,
@@ -548,10 +612,10 @@ export function redactFeedbackRequestForViewer(feedbackRequest, viewerId) {
     auditLog: feedbackRequest.auditLog?.map((event) => (
       isGiver(event) ? { ...event, actorName: "Anonymous" } : event
     )),
-  };
+  });
 }
 
-export async function createFeedbackDiscussion({ requestId, actorId, type, message, parentId = null }) {
+export async function createFeedbackDiscussion({ requestId, actorId, type, message, parentId = null, answerId = null }) {
   const normalizedMessage = typeof message === "string" ? message.trim() : "";
   if (normalizedMessage.length < 3) throw new ServiceError(400, "Message must be at least 3 characters");
   if (normalizedMessage.length > 1000) throw new ServiceError(400, "Message must be 1000 characters or less");
@@ -570,22 +634,30 @@ export async function createFeedbackDiscussion({ requestId, actorId, type, messa
       throw new ServiceError(409, "Clarification is available after feedback is submitted and before it is closed");
     }
 
+    if (answerId !== null) {
+      const [[answer]] = await connection.execute(
+        "SELECT id FROM feedback_answers WHERE id = ? AND request_id = ?",
+        [answerId, requestId],
+      );
+      if (!answer) throw new ServiceError(400, "This answer does not belong to the selected feedback request");
+    }
+
     if (actorId === request.receiverId) {
       if (parentId) throw new ServiceError(400, "Only the feedback giver can reply to a clarification");
       if (!["clarification", "disagreement", "support"].includes(type)) {
         throw new ServiceError(400, "type must be clarification, disagreement, or support");
       }
       await connection.execute(
-        `INSERT INTO feedback_discussions (request_id, author_id, type, message, status)
-         VALUES (?, ?, ?, ?, 'open')`,
-        [requestId, actorId, type, normalizedMessage],
+        `INSERT INTO feedback_discussions (request_id, answer_id, author_id, type, message, status)
+         VALUES (?, ?, ?, ?, ?, 'open')`,
+        [requestId, answerId, actorId, type, normalizedMessage],
       );
     } else if (actorId === request.giverId) {
       if (type !== "response" || !parentId) {
         throw new ServiceError(400, "A feedback giver must reply to an open clarification");
       }
       const [[parent]] = await connection.execute(
-        `SELECT id, author_id AS authorId, status
+        `SELECT id, author_id AS authorId, status, answer_id AS answerId
          FROM feedback_discussions
          WHERE id = ? AND request_id = ? AND parent_id IS NULL
          FOR UPDATE`,
@@ -595,9 +667,9 @@ export async function createFeedbackDiscussion({ requestId, actorId, type, messa
         throw new ServiceError(409, "This clarification is no longer open for a reply");
       }
       await connection.execute(
-        `INSERT INTO feedback_discussions (request_id, parent_id, author_id, type, message, status)
-         VALUES (?, ?, ?, 'response', ?, 'resolved')`,
-        [requestId, parentId, actorId, normalizedMessage],
+        `INSERT INTO feedback_discussions (request_id, parent_id, answer_id, author_id, type, message, status)
+         VALUES (?, ?, ?, ?, 'response', ?, 'resolved')`,
+        [requestId, parentId, parent.answerId, actorId, normalizedMessage],
       );
       await connection.execute(
         "UPDATE feedback_discussions SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP WHERE id = ?",

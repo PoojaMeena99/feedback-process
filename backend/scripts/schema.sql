@@ -122,9 +122,26 @@ CREATE TABLE IF NOT EXISTS feedback_templates (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
   description TEXT,
+  created_by INT NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id)
 );
+
+SET @add_template_created_by_column = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE feedback_templates ADD COLUMN created_by INT NULL AFTER description',
+    'SELECT 1'
+  )
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'feedback_templates'
+    AND column_name = 'created_by'
+);
+PREPARE add_template_created_by_column_statement FROM @add_template_created_by_column;
+EXECUTE add_template_created_by_column_statement;
+DEALLOCATE PREPARE add_template_created_by_column_statement;
 
 SET @add_template_is_active_column = (
   SELECT IF(
@@ -170,6 +187,7 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   removed_by INT NULL,
   removed_reason TEXT NULL,
   status VARCHAR(30) DEFAULT 'requested',
+  submitted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -179,6 +197,15 @@ CREATE TABLE IF NOT EXISTS feedback_requests (
   FOREIGN KEY (alternate_giver_id) REFERENCES users(id),
   FOREIGN KEY (template_id) REFERENCES feedback_templates(id)
 );
+
+SET @add_submitted_at_column = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN submitted_at TIMESTAMP NULL AFTER status', 'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'submitted_at'
+);
+PREPARE add_submitted_at_column_statement FROM @add_submitted_at_column;
+EXECUTE add_submitted_at_column_statement;
+DEALLOCATE PREPARE add_submitted_at_column_statement;
 
 -- Moderation is a soft action: the original feedback is retained for audit.
 SET @add_hidden_at_column = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_requests ADD COLUMN hidden_at TIMESTAMP NULL', 'DO 0') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'feedback_requests' AND column_name = 'hidden_at');
@@ -344,6 +371,7 @@ DEALLOCATE PREPARE add_acknowledged_at_column_statement;
 CREATE TABLE IF NOT EXISTS feedback_discussions (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,
+  answer_id INT NULL,
   parent_id INT NULL,
   author_id INT NOT NULL,
   type VARCHAR(30) NOT NULL,
@@ -352,9 +380,19 @@ CREATE TABLE IF NOT EXISTS feedback_discussions (
   resolved_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (answer_id) REFERENCES feedback_answers(id),
   FOREIGN KEY (parent_id) REFERENCES feedback_discussions(id),
   FOREIGN KEY (author_id) REFERENCES users(id)
 );
+
+SET @add_discussion_answer_id_column = (
+  SELECT IF(COUNT(*) = 0, 'ALTER TABLE feedback_discussions ADD COLUMN answer_id INT NULL AFTER request_id', 'SELECT 1')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'feedback_discussions' AND column_name = 'answer_id'
+);
+PREPARE add_discussion_answer_id_column_statement FROM @add_discussion_answer_id_column;
+EXECUTE add_discussion_answer_id_column_statement;
+DEALLOCATE PREPARE add_discussion_answer_id_column_statement;
 
 -- Keeps automated reminders idempotent: restarting the API must not send the
 -- same due-date reminder or overdue alert again.
@@ -461,10 +499,31 @@ CREATE TABLE IF NOT EXISTS feedback_answers (
   request_id INT NOT NULL,
   question_id INT NOT NULL,
   answer TEXT NOT NULL,
+  rating TINYINT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
   FOREIGN KEY (question_id) REFERENCES template_questions(id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_answer_drafts (
+  request_id INT NOT NULL PRIMARY KEY,
+  giver_id INT NOT NULL,
+  answers JSON NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (giver_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_request_attachments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  added_by INT NOT NULL,
+  label VARCHAR(160) NOT NULL,
+  url VARCHAR(2048) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (request_id) REFERENCES feedback_requests(id),
+  FOREIGN KEY (added_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS feedback_follow_ups (

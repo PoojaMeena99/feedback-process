@@ -435,7 +435,7 @@ export default function Home() {
 
       <MobileNavigation activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); if (page === "analytics") void loadAnalytics(); }} />
 
-      <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
+      <div className={`grid flex-1 ${isCreateOpen ? "xl:grid-cols-[260px_1fr_420px]" : "xl:grid-cols-[260px_1fr]"}`}>
         <Sidebar activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); if (page === "analytics") void loadAnalytics(); }} />
 
         <main className="border-x border-line/70 bg-white/55 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8 lg:px-9 xl:px-10">
@@ -501,7 +501,30 @@ export default function Home() {
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{activePage === "history" ? `${visibleRows.length} history records` : `${visibleRows.length} total requests`}</span>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="grid gap-3 p-4 xl:hidden">
+              {visibleRows.length ? visibleRows.map((row) => (
+                <article key={row.id} className="rounded-xl border border-line bg-slate-50 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900">{row.type}</p>
+                      <p className="mt-1 text-sm text-muted">Requested by {row.requesterName}</p>
+                    </div>
+                    <span className={`${statusClass(row.status)} shrink-0`}>{row.status === "closed" ? "Done" : row.status}</span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                    <div><p className="text-xs font-bold uppercase tracking-wide text-muted">Feedback giver</p><p className="mt-1 font-semibold text-slate-800">{row.giverName}</p></div>
+                    <div><p className="text-xs font-bold uppercase tracking-wide text-muted">Due date</p><p className="mt-1 font-semibold text-slate-800">{row.dueDate}</p></div>
+                    <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-muted">Purpose</p><p className="mt-1 text-slate-700">{row.purpose || "Not selected"}</p></div>
+                  </div>
+                  {row.status === "submitted" && row.giverId === currentUserId ? <p className="mt-3 text-xs font-medium text-slate-500">Waiting for {row.requesterName} to acknowledge.</p> : null}
+                  {row.status === "declined" && row.requesterId === currentUserId ? <p className="mt-3 text-xs font-medium text-red-700">{row.giverName} declined this request{row.declineReason ? `: ${row.declineReason}` : ""}</p> : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {activePage === "history" ? <><button className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700" type="button" onClick={() => void openRequest(row.id)}>View</button>{row.status === "declined" && row.requesterId === currentUserId && row.alternateGiverId ? <button className="rounded-lg border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-700" type="button" onClick={() => { setReplacementRequest(row); setIsCreateOpen(true); }}>Use suggested reviewer</button> : null}</> : <RequestActions row={row} currentUserId={currentUserId} onView={() => void openRequest(row.id)} onAction={(action) => handleRequestAction(row, action)} onEditDueDate={() => setDueDateRequest(row)} />}
+                  </div>
+                </article>
+              )) : <p className="rounded-xl bg-slate-50 px-4 py-10 text-center text-sm text-muted">{requestSearch || requestStatus !== "all" ? "No requests match these filters." : activePage === "history" ? "No feedback history yet." : "No feedback requests yet. Create a request from the right panel."}</p>}
+            </div>
+            <div className="hidden overflow-x-auto xl:block">
               <table className="w-full min-w-[820px] text-left">
                 <thead className="bg-[#f8fafc] text-xs font-bold uppercase tracking-wide text-muted">
                   <tr>
@@ -714,7 +737,7 @@ function MobileNavigation({ activePage, showSCReview, onSelect }) {
   ];
 
   return (
-    <nav className="border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm lg:hidden" aria-label="Main navigation">
+    <nav className="border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm xl:hidden" aria-label="Main navigation">
       <div className="flex gap-2 overflow-x-auto pb-0.5">
         {items.map((item) => (
           <button
@@ -744,7 +767,7 @@ function AppFooter() {
 
 function Sidebar({ activePage, showSCReview, onSelect }) {
   return (
-    <aside className="hidden border-r border-indigo-400/25 bg-[#252d70] px-4 py-8 text-slate-200 lg:flex lg:flex-col">
+    <aside className="hidden border-r border-indigo-400/25 bg-[#252d70] px-4 py-8 text-slate-200 xl:flex xl:flex-col">
       <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.14em] text-indigo-200/70">Workspace</p>
       <nav className="space-y-2 text-base font-medium">
         <SidebarItem active={activePage === "dashboard"} icon={<HomeIcon size={22} />} label="Dashboard" onClick={() => onSelect("dashboard")} />

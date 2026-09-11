@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
+  BarChart3,
   Bell,
   Home as HomeIcon,
   History as HistoryIcon,
@@ -55,6 +56,7 @@ export default function Home() {
   const [schedules, setSchedules] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [reports, setReports] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [declineRequest, setDeclineRequest] = useState(null);
   const [dueDateRequest, setDueDateRequest] = useState(null);
@@ -225,6 +227,32 @@ export default function Home() {
       return { ok: false, message: templateError.message };
     }
   }
+
+  async function updateTemplate(templateId, payload) {
+    try {
+      const data = await api(`/templates/${templateId}`, { method: "PATCH", body: JSON.stringify(payload) });
+      setTemplates((items) => items.map((template) => template.id === templateId ? data.template : template));
+      return { ok: true, template: data.template };
+    } catch (templateError) {
+      return { ok: false, message: templateError.message };
+    }
+  }
+
+  async function setTemplateStatus(templateId, isActive) {
+    try {
+      await api(`/templates/${templateId}/status`, { method: "PATCH", body: JSON.stringify({ isActive }) });
+      setTemplates((items) => items.filter((template) => template.id !== templateId));
+      return { ok: true };
+    } catch (templateError) {
+      return { ok: false, message: templateError.message };
+    }
+  }
+  async function updateUserRole(user, role) {
+    try {
+      const data = await api(`/users/${user.id}/role`, { method: "PATCH", body: JSON.stringify({ role }) });
+      setUsers((items) => items.map((item) => item.id === user.id ? { ...item, ...data.user } : item));
+    } catch (roleError) { setError(roleError.message); }
+  }
   async function openRequest(requestId) {
     try {
       const detail = await api(`/feedback-requests/${requestId}?recordView=true`);
@@ -238,6 +266,16 @@ export default function Home() {
     await api(`/feedback-requests/${requestId}/answers`, { method: "POST", body: JSON.stringify({ answers }) });
     setSelectedRequest(null);
     await loadRequests(currentUserId);
+  }
+
+  async function saveDraft(requestId, answers) {
+    await api(`/feedback-requests/${requestId}/draft`, { method: "PUT", body: JSON.stringify({ answers }) });
+    await openRequest(requestId);
+  }
+
+  async function addAttachment(requestId, attachment) {
+    await api(`/feedback-requests/${requestId}/attachments`, { method: "POST", body: JSON.stringify(attachment) });
+    await openRequest(requestId);
   }
 
   async function performRequestAction(requestId, action, acknowledgementComment, declineReason, alternateGiverId, moderationReason) {
@@ -315,6 +353,14 @@ export default function Home() {
     } catch (reportError) { setError(reportError.message); }
   }
 
+  async function loadAnalytics() {
+    try {
+      const analyticsData = await api("/feedback-analytics");
+      setAnalytics(analyticsData.analytics);
+      setError("");
+    } catch (analyticsError) { setError(analyticsError.message); }
+  }
+
   async function reviewReport(reportId, status) {
     try {
       await api(`/feedback-reports/${reportId}`, { method: "PATCH", body: JSON.stringify({ status }) });
@@ -387,10 +433,10 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#f6f8ff] via-[#fbfcfe] to-[#eef7ff] text-ink">
       <AppHeader currentUser={currentUser} onLogout={handleLogout} isLoggingOut={isLoggingOut} notifications={notifications} onNotificationRead={markNotificationRead} onReadAll={markAllNotificationsRead} onOpenRequest={(requestId) => void openRequest(requestId)} />
 
-      <MobileNavigation activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); }} />
+      <MobileNavigation activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); if (page === "analytics") void loadAnalytics(); }} />
 
       <div className={`grid flex-1 ${isCreateOpen ? "lg:grid-cols-[260px_1fr_420px]" : "lg:grid-cols-[260px_1fr]"}`}>
-        <Sidebar activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); }} />
+        <Sidebar activePage={activePage} showSCReview={isSCReviewer} onSelect={(page) => { setActivePage(page); setRequestSearch(""); setRequestStatus("all"); if (page === "reports") void loadReports(); if (page === "analytics") void loadAnalytics(); }} />
 
         <main className="border-x border-line/70 bg-white/55 px-5 py-7 backdrop-blur-sm sm:px-7 sm:py-8 lg:px-9 xl:px-10">
           <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -399,8 +445,8 @@ export default function Home() {
                 <Sparkles size={15} />
                 Feedback workspace
               </div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : activePage === "reports" ? "SC Team Review" : activePage === "people" ? "People" : "Feedback Requests"}</h1>
-              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : activePage === "reports" ? "Private reports that need SC Team review." : activePage === "people" ? "Manage account access and keep open feedback requests accurate." : "Review, manage, and respond to every feedback request."}</p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl">{activePage === "dashboard" ? "Feedback" : activePage === "history" ? "Feedback History" : activePage === "reports" ? "SC Team Review" : activePage === "people" ? "People" : activePage === "analytics" ? "Team analytics" : "Feedback Requests"}</h1>
+              <p className="mt-2 text-base text-muted">{activePage === "dashboard" ? "Request, share, and review thoughtful feedback in one place." : activePage === "history" ? "Review completed feedback and past request decisions." : activePage === "reports" ? "Private reports that need SC Team review." : activePage === "people" ? "Manage account access and keep open feedback requests accurate." : activePage === "analytics" ? "Anonymous totals to help the team improve its feedback process." : "Review, manage, and respond to every feedback request."}</p>
             </div>
           </div>
 
@@ -438,7 +484,8 @@ export default function Home() {
           </> : null}
 
           {activePage === "reports" && isSCReviewer ? <SCReportReview reports={reports} onReview={(reportId, status) => void reviewReport(reportId, status)} onOpenRequest={(requestId) => void openRequest(requestId)} /> : null}
-          {activePage === "people" && isSCReviewer ? <PeopleManagement users={users} currentUserId={currentUserId} onUpdateStatus={(user, isActive) => void updateUserStatus(user, isActive)} /> : null}
+          {activePage === "people" && isSCReviewer ? <PeopleManagement users={users} currentUserId={currentUserId} onUpdateStatus={(user, isActive) => void updateUserStatus(user, isActive)} onUpdateRole={(user, role) => void updateUserRole(user, role)} /> : null}
+          {activePage === "analytics" && isSCReviewer ? <AnalyticsDashboard analytics={analytics} /> : null}
 
           {["requests", "history"].includes(activePage) ? <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-5">
@@ -543,6 +590,8 @@ export default function Home() {
             replacementRequest={replacementRequest}
             onCreate={createRequest}
             onCreateTemplate={createTemplate}
+            onUpdateTemplate={updateTemplate}
+            onSetTemplateStatus={setTemplateStatus}
             onClose={() => { setIsCreateOpen(false); setReplacementRequest(null); }}
           />
         ) : null}
@@ -557,6 +606,8 @@ export default function Home() {
           currentUserRole={currentUser.role}
           onClose={() => setSelectedRequest(null)}
           onSubmit={submitAnswers}
+          onSaveDraft={saveDraft}
+          onAddAttachment={addAttachment}
           onAcknowledge={(requestId, acknowledgementComment) => performRequestAction(requestId, "acknowledge", acknowledgementComment)}
           onCreateFollowUp={() => setFollowUpRequest(selectedRequest)}
           onUpdateFollowUp={updateFollowUp}
@@ -659,7 +710,7 @@ function MobileNavigation({ activePage, showSCReview, onSelect }) {
     { page: "dashboard", label: "Dashboard", icon: <HomeIcon size={17} /> },
     { page: "requests", label: "Requests", icon: <Inbox size={17} /> },
     { page: "history", label: "History", icon: <HistoryIcon size={17} /> },
-    ...(showSCReview ? [{ page: "reports", label: "SC Review", icon: <Inbox size={17} /> }, { page: "people", label: "People", icon: <UsersRound size={17} /> }] : []),
+    ...(showSCReview ? [{ page: "reports", label: "SC Review", icon: <Inbox size={17} /> }, { page: "analytics", label: "Analytics", icon: <BarChart3 size={17} /> }, { page: "people", label: "People", icon: <UsersRound size={17} /> }] : []),
   ];
 
   return (
@@ -700,20 +751,21 @@ function Sidebar({ activePage, showSCReview, onSelect }) {
         <SidebarItem active={activePage === "requests"} icon={<Inbox size={22} />} label="Feedback Requests" onClick={() => onSelect("requests")} />
         <SidebarItem active={activePage === "history"} icon={<HistoryIcon size={22} />} label="Feedback History" onClick={() => onSelect("history")} />
         {showSCReview ? <SidebarItem active={activePage === "reports"} icon={<Inbox size={22} />} label="SC Team Review" onClick={() => onSelect("reports")} /> : null}
+        {showSCReview ? <SidebarItem active={activePage === "analytics"} icon={<BarChart3 size={22} />} label="Team analytics" onClick={() => onSelect("analytics")} /> : null}
         {showSCReview ? <SidebarItem active={activePage === "people"} icon={<UsersRound size={22} />} label="People" onClick={() => onSelect("people")} /> : null}
       </nav>
     </aside>
   );
 }
 
-function PeopleManagement({ users, currentUserId, onUpdateStatus }) {
+function PeopleManagement({ users, currentUserId, onUpdateStatus, onUpdateRole }) {
   return (
     <section className="mt-7 overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
       <div className="border-b border-line px-6 py-5"><p className="font-bold text-slate-950">Account access</p><p className="mt-1 text-sm text-muted">Deactivating an account signs the person out, pauses their schedules, and updates open feedback requests. Completed history remains saved.</p></div>
       <div className="divide-y divide-line">
         {users.map((user) => <article className="flex flex-wrap items-center justify-between gap-4 px-6 py-4" key={user.id}>
           <div><p className="font-semibold text-slate-900">{user.name}{user.id === currentUserId ? " (you)" : ""}</p><p className="mt-1 text-sm text-muted">{user.email} · {user.role || "member"}</p></div>
-          <div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${user.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{user.isActive ? "Active" : "Deactivated"}</span>{user.id !== currentUserId ? <button className={user.isActive ? "rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50" : secondaryButton} type="button" onClick={() => onUpdateStatus(user, !user.isActive)}>{user.isActive ? "Deactivate" : "Reactivate"}</button> : null}</div>
+          <div className="flex flex-wrap items-center gap-3"><select className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700" value={user.role || "member"} onChange={(event) => onUpdateRole(user, event.target.value)} aria-label={`Role for ${user.name}`}><option value="member">Member</option><option value="mentor">Mentor</option><option value="lead">Lead</option><option value="manager">Manager</option><option value="sc">SC Team</option><option value="hr">HR</option><option value="admin">Admin</option></select><span className={`rounded-full px-3 py-1 text-xs font-bold ${user.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{user.isActive ? "Active" : "Deactivated"}</span>{user.id !== currentUserId ? <button className={user.isActive ? "rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50" : secondaryButton} type="button" onClick={() => onUpdateStatus(user, !user.isActive)}>{user.isActive ? "Deactivate" : "Reactivate"}</button> : null}</div>
         </article>)}
       </div>
     </section>
@@ -736,6 +788,25 @@ function SCReportReview({ reports, onReview, onOpenRequest }) {
       </div>
     </section>
   );
+}
+
+function AnalyticsDashboard({ analytics }) {
+  if (!analytics) return <section className="mt-7 rounded-2xl border border-line/80 bg-white p-8 text-center text-muted shadow-[0_12px_36px_rgba(15,23,42,0.07)]">Loading team analytics…</section>;
+  const summary = analytics.summary || {};
+  const completionRate = Number(summary.totalRequests) ? Math.round((Number(summary.completedRequests) / Number(summary.totalRequests)) * 100) : 0;
+  return <section className="mt-7 grid gap-5">
+    <p className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">These are anonymous team totals only. Individual feedback answers and names are not shown here.</p>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <StatCard icon={<Inbox size={24} />} tone="blue" label="Total requests" value={summary.totalRequests || 0} helper="Across the whole team" />
+      <StatCard icon={<Check size={24} />} tone="green" label="Completed" value={summary.completedRequests || 0} helper={`${completionRate}% completion rate`} />
+      <StatCard icon={<HistoryIcon size={24} />} tone="amber" label="Open" value={summary.openRequests || 0} helper="Still waiting for completion" />
+      <StatCard icon={<BarChart3 size={24} />} tone="violet" label="Average response" value={summary.averageResponseHours == null ? "—" : `${Math.round(summary.averageResponseHours)}h`} helper="From request to submitted feedback" />
+    </div>
+    <div className="grid gap-5 lg:grid-cols-2">
+      <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><h2 className="text-lg font-bold text-slate-950">Requests by feedback type</h2><div className="mt-4 grid gap-3">{(analytics.byTemplate || []).length ? analytics.byTemplate.map((item) => <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3" key={item.templateName}><div><p className="font-semibold text-slate-900">{item.templateName}</p><p className="mt-1 text-sm text-muted">{item.completedRequests} completed</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700">{item.requestCount}</span></div>) : <p className="text-sm text-muted">No feedback requests yet.</p>}</div></article>
+      <article className="rounded-2xl border border-line/80 bg-white p-6 shadow-[0_12px_36px_rgba(15,23,42,0.07)]"><h2 className="text-lg font-bold text-slate-950">Requests by status</h2><div className="mt-4 grid gap-3">{(analytics.byStatus || []).length ? analytics.byStatus.map((item) => <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3" key={item.status}><span className="font-semibold capitalize text-slate-900">{String(item.status).replaceAll("_", " ")}</span><span className="rounded-full bg-slate-200 px-3 py-1 text-sm font-bold text-slate-700">{item.requestCount}</span></div>) : <p className="text-sm text-muted">No feedback requests yet.</p>}</div></article>
+    </div>
+  </section>;
 }
 
 function reportReasonLabel(reason) {
@@ -782,13 +853,11 @@ function StatCard({ icon, tone, label, value, helper }) {
   );
 }
 
-function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, replacementRequest, onCreate, onCreateTemplate, onClose }) {
+function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, replacementRequest, onCreate, onCreateTemplate, onUpdateTemplate, onSetTemplateStatus, onClose }) {
   const possibleGivers = users.filter((user) => user.id !== currentUserId && user.isActive !== false);
   const [giverId, setGiverId] = useState("");
   const [templateId, setTemplateId] = useState("");
-  const [message, setMessage] = useState(
-    "Please share feedback for my learning progress.",
-  );
+  const [message, setMessage] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState("quarterly");
@@ -806,6 +875,8 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
   const [customTemplateDescription, setCustomTemplateDescription] = useState("");
   const [customQuestions, setCustomQuestions] = useState(["", "", ""]);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
+  const [isManageTemplatesOpen, setIsManageTemplatesOpen] = useState(false);
   const [notice, setNotice] = useState(null);
   const [noticeTone, setNoticeTone] = useState("error");
   const today = new Date().toISOString().slice(0, 10);
@@ -819,6 +890,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
   const possibleViewers = users.filter(
     (user) => user.id !== currentUserId && user.id !== Number(giverId) && user.isActive !== false,
   );
+  const mentorLeadViewers = possibleViewers.filter((user) => ["mentor", "lead", "manager"].includes(String(user.role || "").toLowerCase()));
 
   useEffect(() => {
     setViewerIds((currentIds) => currentIds.filter((id) => possibleViewers.some((user) => user.id === id)));
@@ -921,11 +993,10 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     setIsSavingTemplate(true);
     setNotice(null);
 
-    const result = await onCreateTemplate({
-      name: customTemplateName,
-      description: customTemplateDescription,
-      questions,
-    });
+    const wasEditingTemplate = Boolean(editingTemplateId);
+    const result = wasEditingTemplate
+      ? await onUpdateTemplate(editingTemplateId, { name: customTemplateName, description: customTemplateDescription, questions })
+      : await onCreateTemplate({ name: customTemplateName, description: customTemplateDescription, questions });
 
     setIsSavingTemplate(false);
 
@@ -940,14 +1011,45 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
     setCustomTemplateName("");
     setCustomTemplateDescription("");
     setCustomQuestions(["", "", ""]);
+    setEditingTemplateId(null);
     setIsCustomTemplateOpen(false);
     setNoticeTone("success");
-    setNotice("Custom template saved and selected for this request.");
+    setNotice(wasEditingTemplate ? "Custom template updated and selected for this request." : "Custom template saved and selected for this request.");
   }
 
+  async function editTemplate(template) {
+    try {
+      const data = await api(`/templates/${template.id}/questions`);
+      setEditingTemplateId(template.id);
+      setCustomTemplateName(template.name);
+      setCustomTemplateDescription(template.description || "");
+      setCustomQuestions(data.questions.map((question) => question.questionText));
+      setIsCustomTemplateOpen(true);
+      setNotice(null);
+    } catch (templateError) {
+      setNoticeTone("error");
+      setNotice(templateError.message);
+    }
+  }
+
+  async function deactivateTemplate(template) {
+    const result = await onSetTemplateStatus(template.id, false);
+    if (!result.ok) {
+      setNoticeTone("error");
+      setNotice(result.message);
+      return;
+    }
+    if (Number(templateId) === template.id) setTemplateId(templates.find((item) => item.id !== template.id)?.id || "");
+    setNoticeTone("success");
+    setNotice(`${template.name} is no longer available for new requests.`);
+  }
+
+  const canModerateTemplates = ["admin", "hr", "sc"].includes(String(currentUser?.role || "").toLowerCase());
+  const manageableTemplates = templates.filter((template) => canModerateTemplates || template.createdBy === currentUserId);
+
   return (
-    <aside className="border-l border-line/80 bg-white px-6 py-7 shadow-[-10px_0_30px_rgba(15,23,42,0.04)] sm:px-7 sm:py-8 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-72px)] lg:self-start lg:overflow-y-auto">
-      <div className="mb-8 flex items-center justify-between gap-4">
+    <aside className="border-l border-line/80 bg-white/95 px-6 py-6 shadow-[-10px_0_30px_rgba(15,23,42,0.08)] backdrop-blur-sm sm:px-7 sm:py-7 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-72px)] lg:self-start lg:overflow-y-auto">
+      <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <p className="mb-1 text-sm font-bold uppercase tracking-wide text-blue-600">{replacementRequest ? "Replacement request" : "New request"}</p>
           <h2 className="text-3xl font-bold tracking-tight text-[#111827]">{replacementRequest ? `Ask ${replacementRequest.alternateGiverName}` : "Request feedback"}</h2>
@@ -958,7 +1060,7 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
         </button>
       </div>
 
-      <form className="grid gap-6" onSubmit={submit}>
+      <form className="grid gap-5" onSubmit={submit}>
         <Field label="Feedback type">
           <SelectShell>
             <select className="w-full bg-transparent outline-none" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
@@ -971,17 +1073,39 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
           </SelectShell>
         </Field>
 
-        <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/50 p-4">
+        <Field label="Who will give feedback?">
+          <SelectShell>
+            <Avatar initials={initialsForName(possibleGivers.find((user) => user.id === Number(giverId))?.name)} small />
+            <select className="w-full bg-transparent outline-none" value={giverId} onChange={(event) => setGiverId(event.target.value)}>
+              {possibleGivers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+          </SelectShell>
+          <p className="text-sm font-normal text-muted">This person will receive the form and share their feedback with you.</p>
+        </Field>
+
+        {!recurring ? <Field label="Due date (optional)">
+          <input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+        </Field> : null}
+
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3.5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-base font-bold text-slate-900">Need a different feedback type?</p>
-              <p className="mt-1 text-sm text-muted">Create a custom template with your own questions.</p>
+              <p className="text-sm font-bold text-slate-900">Need your own questions?</p>
+              <p className="mt-0.5 text-sm text-muted">Create a reusable custom template.</p>
             </div>
             <button
               className={secondaryButton}
               type="button"
               onClick={() => {
                 setIsCustomTemplateOpen((isOpen) => !isOpen);
+                setEditingTemplateId(null);
+                setCustomTemplateName("");
+                setCustomTemplateDescription("");
+                setCustomQuestions(["", "", ""]);
                 setSavedTemplateName("");
                 setNotice(null);
               }}
@@ -1054,8 +1178,25 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
                 disabled={isSavingTemplate}
               >
                 <Check size={18} />
-                {isSavingTemplate ? "Saving template..." : "Save custom template"}
+                {isSavingTemplate ? "Saving template..." : editingTemplateId ? "Update custom template" : "Save custom template"}
               </button>
+            </div>
+          ) : null}
+
+          {manageableTemplates.length ? (
+            <div className="mt-4 border-t border-dashed border-slate-300 pt-4">
+              <button className="flex w-full items-center justify-between text-left text-sm font-semibold text-blue-700" type="button" onClick={() => setIsManageTemplatesOpen((visible) => !visible)}>
+                <span>Manage my custom templates ({manageableTemplates.length})</span>
+                <span aria-hidden="true">{isManageTemplatesOpen ? "−" : "+"}</span>
+              </button>
+              {isManageTemplatesOpen ? <div className="mt-3 grid gap-2">
+                {manageableTemplates.map((template) => (
+                  <div key={template.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                    <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{template.name}</p><p className="truncate text-xs text-muted">{template.description || "Custom feedback template"}</p></div>
+                    <div className="flex shrink-0 gap-2"><button className="text-xs font-bold text-blue-700 hover:underline" type="button" onClick={() => void editTemplate(template)}>Edit</button><button className="text-xs font-bold text-red-600 hover:underline" type="button" onClick={() => void deactivateTemplate(template)}>Disable</button></div>
+                  </div>
+                ))}
+              </div> : null}
             </div>
           ) : null}
 
@@ -1067,29 +1208,21 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
           ) : null}
         </div>
 
-        <Field label="Who will give feedback?">
-          <SelectShell>
-            <Avatar initials={initialsForName(possibleGivers.find((user) => user.id === Number(giverId))?.name)} small />
-            <select className="w-full bg-transparent outline-none" value={giverId} onChange={(event) => setGiverId(event.target.value)}>
-              {possibleGivers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
-          </SelectShell>
-          <p className="text-sm font-normal text-muted">This person will receive the request and fill the feedback form.</p>
-        </Field>
-
-        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-          <span className="font-semibold">You will receive this feedback.</span> It is automatically linked to your account.
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <span className="font-semibold">You will receive the completed feedback.</span> It is linked to your account automatically.
         </div>
 
         <button className="flex items-center justify-between rounded-lg border border-dashed border-slate-300 px-4 py-3 text-left text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50" type="button" onClick={() => setShowMoreOptions((visible) => !visible)}>
-          <span>{showMoreOptions ? "Hide additional options" : "More options"}</span><span aria-hidden="true">{showMoreOptions ? "−" : "+"}</span>
+          <span>{showMoreOptions ? "Hide additional options" : "More options (privacy, repeat, message)"}</span><span aria-hidden="true">{showMoreOptions ? "−" : "+"}</span>
         </button>
 
         {showMoreOptions ? <>
+        <details className="group rounded-xl border border-slate-200 bg-white" open>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
+            <span><span className="block font-bold text-slate-900">Purpose & visibility</span><span className="mt-0.5 block text-sm font-normal text-muted">Why you need feedback and who can view it.</span></span>
+            <span className="text-lg font-semibold text-blue-700 transition group-open:rotate-45">+</span>
+          </summary>
+          <div className="grid gap-4 border-t border-slate-100 px-4 py-4">
         <Field label="Feedback purpose">
           <SelectShell>
             <select className="w-full bg-transparent outline-none" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
@@ -1129,10 +1262,11 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
                 onChange={(event) => setViewerIds(event.target.value ? [Number(event.target.value)] : [])}
               >
                 <option value="">Choose one person</option>
-                {possibleViewers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                {mentorLeadViewers.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.role}</option>)}
               </select>
             </SelectShell>
-            <p className="text-sm font-normal text-muted">They can read this request and its feedback, but cannot edit it.</p>
+            <p className="text-sm font-normal text-muted">Only people assigned a Mentor, Lead, or Manager role can be selected. They can read this request but cannot edit it.</p>
+            {!mentorLeadViewers.length ? <p className="text-sm font-semibold text-amber-700">No Mentor or Lead is configured yet. Ask the SC Team to assign that role first.</p> : null}
           </div>
         ) : null}
 
@@ -1154,9 +1288,16 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
             <p className="text-sm font-normal text-muted">Selected people can read this request and its feedback, but cannot edit it.</p>
           </div>
         ) : null}
-        </> : null}
+          </div>
+        </details>
 
-        {!recurring ? <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        {!recurring ? <details className="group rounded-xl border border-amber-200 bg-amber-50/50">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
+            <span><span className="block font-bold text-slate-900">Privacy</span><span className="mt-0.5 block text-sm font-normal text-slate-600">Keep the feedback giver anonymous, if needed.</span></span>
+            <span className="text-lg font-semibold text-amber-700 transition group-open:rotate-45">+</span>
+          </summary>
+          <div className="border-t border-amber-200 px-4 py-4">
+          <div className="rounded-lg bg-white/70 p-3">
           <label className="flex cursor-pointer items-start gap-3">
             <input className="mt-1 h-4 w-4" type="checkbox" checked={isAnonymous} onChange={(event) => setIsAnonymous(event.target.checked)} />
             <span>
@@ -1164,9 +1305,16 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
               <span className="mt-1 block text-sm font-normal text-slate-600">After feedback is submitted, their name is hidden from you and any selected viewers. The giver can still see their own request.</span>
             </span>
           </label>
-        </div> : null}
+          </div>
+          </div>
+        </details> : null}
 
-        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+        <details className="group rounded-xl border border-violet-200 bg-violet-50/60">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
+            <span><span className="block font-bold text-slate-900">Repeat request</span><span className="mt-0.5 block text-sm font-normal text-slate-600">Schedule regular feedback automatically.</span></span>
+            <span className="text-lg font-semibold text-violet-700 transition group-open:rotate-45">+</span>
+          </summary>
+          <div className="border-t border-violet-200 px-4 py-4">
           <label className="flex cursor-pointer items-start gap-3">
             <input className="mt-1 h-4 w-4" type="checkbox" checked={recurring} disabled={Boolean(replacementRequest)} onChange={(event) => {
               setRecurring(event.target.checked);
@@ -1183,21 +1331,28 @@ function CreateFeedbackPanel({ currentUserId, currentUser, users, templates, rep
             <Field label="Give feedback within"><SelectShell><select className="w-full bg-transparent outline-none" value={dueInDays} onChange={(event) => setDueInDays(event.target.value)}><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option></select></SelectShell></Field>
             <p className="text-sm font-normal text-violet-800">The giver gets a Mattermost notification on every scheduled request.</p>
           </div> : null}
-        </div>
+          </div>
+        </details>
 
-        {!recurring ? <Field label="Due date">
-          <input className={fieldClass} type="date" min={today} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-        </Field> : null}
-
-        {showMoreOptions ? <Field label="Feedback request message (optional)">
+        <details className="group rounded-xl border border-slate-200 bg-white">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 marker:hidden [&::-webkit-details-marker]:hidden">
+            <span><span className="block font-bold text-slate-900">Add a message</span><span className="mt-0.5 block text-sm font-normal text-muted">Optional context for the feedback giver.</span></span>
+            <span className="text-lg font-semibold text-blue-700 transition group-open:rotate-45">+</span>
+          </summary>
+          <div className="border-t border-slate-100 px-4 py-4">
+        <Field label="Feedback request message (optional)">
           <textarea
             className={`${fieldClass} min-h-48 resize-y leading-7`}
             value={message}
             maxLength={500}
+            placeholder="Add a short note or context for the feedback giver (optional)"
             onChange={(event) => setMessage(event.target.value)}
           />
           <p className="text-sm font-normal text-muted">{message.length} / 500 characters</p>
-        </Field> : null}
+        </Field>
+          </div>
+        </details>
+        </> : null}
 
         <button className={`${primaryButton} mt-4 w-full py-4 text-lg`} type="submit">
           <Send size={22} />
@@ -1393,7 +1548,7 @@ function InlineDatePicker({ dueDate, month, onMonthChange, onChange, today }) {
   );
 }
 
-function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSubmit, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion, onReport, onModerate }) {
+function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSubmit, onSaveDraft, onAddAttachment, onAcknowledge, onCreateFollowUp, onUpdateFollowUp, onDiscussion, onReport, onModerate }) {
   const template = request.template;
   const isRequester = Number(currentUserId) === Number(request.requesterId);
   const isGiver = Number(currentUserId) === Number(request.giverId);
@@ -1410,15 +1565,29 @@ function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSu
       : feedbackWasShared
         ? `This feedback was shared with ${request.requesterName}.`
         : `Your feedback will be shared with ${request.requesterName}.`;
-  const [answers, setAnswers] = useState(() => Object.fromEntries(request.answers.map((item) => [item.questionId, item.answer])));
+  const [answers, setAnswers] = useState(() => Object.fromEntries((request.answers?.length ? request.answers : request.draft?.answers || []).map((item) => [item.questionId, { answer: item.answer || "", rating: item.rating || null }])));
   const [acknowledgementComment, setAcknowledgementComment] = useState("");
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isModerationOpen, setIsModerationOpen] = useState(false);
+  const [attachmentLabel, setAttachmentLabel] = useState("");
+  const [attachmentUrl, setAttachmentUrl] = useState("");
+  const [attachmentNotice, setAttachmentNotice] = useState("");
   const canModerate = ["admin", "hr", "sc"].includes(String(currentUserRole).toLowerCase());
 
   async function submit(event) {
     event.preventDefault();
-    await onSubmit(request.id, template.questions.map((question) => ({ questionId: question.id, answer: answers[question.id] || "" })));
+    await onSubmit(request.id, template.questions.map((question) => ({ questionId: question.id, answer: answers[question.id]?.answer || "", rating: answers[question.id]?.rating || null })));
+  }
+
+  async function saveCurrentDraft() {
+    await onSaveDraft(request.id, template.questions.map((question) => ({ questionId: question.id, answer: answers[question.id]?.answer || "", rating: answers[question.id]?.rating || null })));
+  }
+
+  async function addSupportingLink() {
+    try {
+      await onAddAttachment(request.id, { label: attachmentLabel, url: attachmentUrl });
+      setAttachmentLabel(""); setAttachmentUrl(""); setAttachmentNotice("Link added.");
+    } catch (error) { setAttachmentNotice(error.message || "Link could not be added."); }
   }
 
   async function acknowledge() {
@@ -1457,15 +1626,28 @@ function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSu
             <p className="mt-1 text-slate-600">{formatVisibility(request.visibility)}</p>
             {request.viewers?.length ? <p className="mt-1 text-slate-600">Shared with: {request.viewers.map((viewer) => viewer.name).join(", ")}</p> : null}
           </div>
+          {(isRequester || isGiver) && !wasStopped && request.status !== "closed" ? <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="font-semibold text-slate-900">Supporting links</p>
+            <p className="mt-1 text-sm text-slate-600">Add a document, task, Drive, or screenshot link that helps give better feedback.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
+              <input className={fieldClass} value={attachmentLabel} maxLength={160} placeholder="Link name" onChange={(event) => setAttachmentLabel(event.target.value)} />
+              <input className={fieldClass} value={attachmentUrl} placeholder="https://…" onChange={(event) => setAttachmentUrl(event.target.value)} />
+              <button className={secondaryButton} type="button" onClick={() => void addSupportingLink()}>Add link</button>
+            </div>
+            {attachmentNotice ? <p className={`mt-2 text-sm font-medium ${attachmentNotice === "Link added." ? "text-emerald-700" : "text-red-700"}`}>{attachmentNotice}</p> : null}
+          </section> : null}
+          {request.attachments?.length ? <section className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="font-semibold text-slate-900">Shared links</p><ul className="mt-2 grid gap-2">{request.attachments.map((attachment) => <li key={attachment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-sm"><span><span className="font-semibold text-slate-800">{attachment.label}</span><span className="ml-2 text-slate-500">added by {attachment.addedByName}</span></span><a className="font-semibold text-blue-700 hover:underline" href={attachment.url} target="_blank" rel="noreferrer">Open link</a></li>)}</ul></section> : null}
           {!wasStopped ? template.questions.map((question, index) => (
             <Field key={question.id} label={<span className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span><span>{question.questionText}</span></span>}>
               <textarea
                 className={`${fieldClass} min-h-28 resize-y border-slate-200 bg-slate-50/70 leading-7 focus:bg-white disabled:bg-surface disabled:text-muted`}
-                value={answers[question.id] ?? ""}
+                value={answers[question.id]?.answer ?? ""}
                 disabled={!canSubmit}
-                onChange={(event) => setAnswers({ ...answers, [question.id]: event.target.value })}
+                onChange={(event) => setAnswers({ ...answers, [question.id]: { ...(answers[question.id] || {}), answer: event.target.value } })}
                 required
               />
+              {canSubmit ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600"><span className="font-semibold">Optional rating</span>{[1, 2, 3, 4, 5].map((rating) => <button key={rating} className={`h-8 w-8 rounded-full border font-bold transition ${answers[question.id]?.rating === rating ? "border-amber-400 bg-amber-400 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-amber-300"}`} type="button" aria-label={`Rate ${rating} out of 5`} onClick={() => setAnswers({ ...answers, [question.id]: { ...(answers[question.id] || {}), rating } })}>{rating}</button>)}</div> : null}
+              {!canSubmit && request.answers?.find((item) => item.questionId === question.id)?.rating ? <p className="mt-2 text-xs font-semibold text-amber-700">Rating: {request.answers.find((item) => item.questionId === question.id).rating} / 5</p> : null}
             </Field>
           )) : null}
           {canAcknowledge ? (
@@ -1511,6 +1693,11 @@ function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSu
             <button className={secondaryButton} type="button" onClick={onClose}>
               Close
             </button>
+            {canSubmit ? (
+              <button className={secondaryButton} type="button" onClick={() => void saveCurrentDraft()}>
+                Save draft
+              </button>
+            ) : null}
             {canSubmit ? (
               <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-5 font-semibold text-white shadow-lg shadow-blue-200 transition hover:from-blue-700 hover:to-indigo-700" type="submit">
                 <Check size={16} />
@@ -1627,6 +1814,7 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
   const isGiver = Number(currentUserId) === Number(request.giverId);
   const canDiscuss = ["submitted", "acknowledged"].includes(request.status);
   const [message, setMessage] = useState("");
+  const [answerId, setAnswerId] = useState("");
   const [replyValues, setReplyValues] = useState({});
   const [notice, setNotice] = useState("");
   const discussions = request.discussions || [];
@@ -1635,7 +1823,7 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
 
   async function sendMessage() {
     if (message.trim().length < 3) return setNotice("Please write at least 3 characters.");
-    const saved = await onDiscussion(request.id, { type: "clarification", message });
+    const saved = await onDiscussion(request.id, { type: "clarification", message, answerId: answerId || null });
     if (saved) {
       setMessage("");
       setNotice("");
@@ -1669,8 +1857,10 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
         {messages.map((discussion) => {
           const isReply = Boolean(discussion.parentId);
           const isFromGiver = Number(discussion.authorId) === Number(request.giverId);
+          const answer = (request.answers || []).find((item) => Number(item.id) === Number(discussion.answerId));
           return <div className={`max-w-[88%] rounded-xl px-4 py-3 ${isFromGiver ? "mr-auto border border-sky-200 bg-white" : "ml-auto bg-emerald-100 text-emerald-950"}`} key={discussion.id}>
             <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{discussion.authorName} · {isFromGiver ? "Feedback giver" : "Feedback receiver"}</p>
+            {answer ? <p className="mt-2 rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900">About: {answer.questionText}</p> : null}
             <p className="mt-1 whitespace-pre-wrap text-sm">{discussion.message}</p>
             <p className="mt-2 text-xs text-slate-500">{isReply ? "Reply" : "Question"}</p>
           </div>;
@@ -1678,6 +1868,7 @@ function FeedbackConversation({ request, currentUserId, onDiscussion }) {
       </div> : <p className="mt-4 rounded-lg border border-dashed border-sky-200 bg-white/70 px-4 py-3 text-sm text-slate-600">No questions yet.</p>}
 
       {canDiscuss && isReceiver ? <div className="mt-4 grid gap-3 border-t border-sky-100 pt-4">
+        <select className={fieldClass} value={answerId} onChange={(event) => setAnswerId(event.target.value)}><option value="">About the overall feedback</option>{(request.answers || []).map((answer) => <option key={answer.id} value={answer.id}>{answer.questionText}</option>)}</select>
         <textarea className={`${fieldClass} min-h-24 resize-y`} value={message} maxLength={1000} placeholder="Ask a question about this feedback" onChange={(event) => setMessage(event.target.value)} />
         <button className={`${secondaryButton} justify-self-start`} type="button" onClick={() => void sendMessage()}>Send question</button>
       </div> : null}

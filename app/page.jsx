@@ -1607,8 +1607,21 @@ function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSu
   }
 
   async function addSupportingLink() {
+    const label = attachmentLabel.trim();
+    const url = attachmentUrl.trim();
+    if (label.length < 2) {
+      setAttachmentNotice("Enter a link name with at least 2 characters.");
+      return;
+    }
     try {
-      await onAddAttachment(request.id, { label: attachmentLabel, url: attachmentUrl });
+      const parsedUrl = new URL(url);
+      if (!["https:", "http:"].includes(parsedUrl.protocol)) throw new Error("Invalid protocol");
+    } catch {
+      setAttachmentNotice("Enter a valid link starting with https:// or http://.");
+      return;
+    }
+    try {
+      await onAddAttachment(request.id, { label, url });
       setAttachmentLabel(""); setAttachmentUrl(""); setAttachmentNotice("Link added.");
     } catch (error) { setAttachmentNotice(error.message || "Link could not be added."); }
   }
@@ -1649,9 +1662,9 @@ function FeedbackDetail({ request, currentUserId, currentUserRole, onClose, onSu
             <p className="mt-1 text-slate-600">{formatVisibility(request.visibility)}</p>
             {request.viewers?.length ? <p className="mt-1 text-slate-600">Shared with: {request.viewers.map((viewer) => viewer.name).join(", ")}</p> : null}
           </div>
-          {(isRequester || isGiver) && !wasStopped && request.status !== "closed" ? <section className="rounded-xl border border-slate-200 bg-white p-4">
+          {isRequester && !wasStopped && request.status !== "closed" ? <section className="rounded-xl border border-slate-200 bg-white p-4">
             <p className="font-semibold text-slate-900">Supporting links</p>
-            <p className="mt-1 text-sm text-slate-600">Add a document, task, Drive, or screenshot link that helps give better feedback.</p>
+            <p className="mt-1 text-sm text-slate-600">Share a document, task, Drive, or screenshot link to give the feedback giver useful context.</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
               <input className={fieldClass} value={attachmentLabel} maxLength={160} placeholder="Link name" onChange={(event) => setAttachmentLabel(event.target.value)} />
               <input className={fieldClass} value={attachmentUrl} placeholder="https://…" onChange={(event) => setAttachmentUrl(event.target.value)} />

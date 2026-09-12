@@ -580,7 +580,7 @@ export async function addFeedbackAttachment({ requestId, actorId, label, url }) 
   const pool = getDatabasePool();
   const [[request]] = await pool.execute("SELECT requester_id AS requesterId, giver_id AS giverId, receiver_id AS receiverId, status FROM feedback_requests WHERE id = ?", [requestId]);
   if (!request) throw new ServiceError(404, "Feedback request not found");
-  if (![request.requesterId, request.giverId, request.receiverId].includes(actorId)) throw new ServiceError(403, "Only participants can add supporting links");
+  if (request.requesterId !== actorId) throw new ServiceError(403, "Only the requester can add supporting links");
   if (["cancelled", "declined", "closed"].includes(request.status)) throw new ServiceError(409, "Supporting links cannot be added to a completed request");
   await pool.execute("INSERT INTO feedback_request_attachments (request_id, added_by, label, url) VALUES (?, ?, ?, ?)", [requestId, actorId, normalizedLabel, normalizedUrl]);
   await writeFeedbackAuditEvent({ requestId, actorId, eventType: "supporting_link_added" });
